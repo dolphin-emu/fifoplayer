@@ -162,9 +162,17 @@ void Init()
 	WPAD_Init();
 }
 
+#include "mygx.h"
+
 int main()
 {
 	Init();
+
+	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
+	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
+	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
+	wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
+	GX_End();
 
 	bool processing = true;
 	int first_frame = 0;
@@ -202,37 +210,38 @@ int main()
 		}
 
 		// Simple testing code
-		GX_SetViewport(0,0,rmode->fbWidth,rmode->efbHeight,0,1);
+		MY_SetViewport(0,0,rmode->fbWidth,rmode->efbHeight,0,1);
 
-		GX_InvVtxCache();
-		GX_ClearVtxDesc();
-		GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+		wgPipe->U8 = 0x48; // InvVtxCache
 
 		guMtxIdentity(model);
 		guMtxTransApply(model, model, -1.5f,0.0f,-6.0f);
 		guMtxConcat(view,model,modelview);
-		// load the modelview matrix into matrix memory
-		GX_LoadPosMtxImm(modelview, GX_PNMTX0);
+		MY_LoadPosMtxImm(modelview, GX_PNMTX0);
+
+		// Setup vtx desc
+		MY_LOAD_CP_REG(0x50, (_SHIFTL(GX_DIRECT,9,2)));
+		MY_LOAD_CP_REG(0x60, 0);
+		MY_LOAD_XF_REG(0x1008, 0);
 
 		// Draw a triangle
-		GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3);
-		GX_Position3f32( 0.0f, 1.0f, 0.0f); // Top
-		GX_Position3f32(-1.0f,-1.0f, 0.0f); // Bottom left
-		GX_Position3f32( 1.0f,-1.0f, 0.0f); // Bottom right
-		GX_End();
+		wgPipe->U8 = GX_TRIANGLES|(GX_VTXFMT0&7);
+		wgPipe->U16 = 3;
+		wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
+		wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
+		wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
 
 		guMtxTransApply(model, model, 3.0f,0.0f,0.0f);
 		guMtxConcat(view,model,modelview);
-		// load the modelview matrix into matrix memory
-		GX_LoadPosMtxImm(modelview, GX_PNMTX0);
+		MY_LoadPosMtxImm(modelview, GX_PNMTX0);
 
 		// Draw a quad
-		GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+		wgPipe->U8 = GX_QUADS|(GX_VTXFMT0&7);
+		wgPipe->U16 = 4;
 		GX_Position3f32(-1.0f, 1.0f, 0.0f); // Top left
 		GX_Position3f32( 1.0f, 1.0f, 0.0f); // Top right
 		GX_Position3f32( 1.0f,-1.0f, 0.0f); // Bottom right
 		GX_Position3f32(-1.0f,-1.0f, 0.0f); // Bottom left
-		GX_End();
 
 		// finish frame...
 		GX_DrawDone();
