@@ -176,7 +176,6 @@ struct DffMemoryUpdate
 		address = le32toh(address);
 		dataOffset = le64toh(dataOffset);
 		dataSize = le32toh(dataSize);
-//		le8toh(type);
 	}
 };
 #include "stdio.h"
@@ -292,6 +291,7 @@ void LoadDffData(u8* data, unsigned int& size)
 			printf("reg value: %f\n", *(f32*)&val);
 		}
 
+		// Flush WGP
 		for (int i = 0; i < 7; ++i)
 			wgPipe->U32 = 0;
 		wgPipe->U16 = 0;
@@ -309,21 +309,11 @@ GXRModeObj *rmode;
 
 u32 fb = 0;
 u32 first_frame = 1;
-Mtx view;
-Mtx model, modelview;
 
 #include <unistd.h>
 
 void Init()
 {
-	f32 yscale;
-
-	u32 xfbHeight;
-
-	Mtx44 perspective;
-
-	GXColor background = { 0, 0, 0, 0xff };
-
 	VIDEO_Init();
 
 	rmode = VIDEO_GetPreferredMode(NULL);
@@ -347,52 +337,9 @@ void Init()
 
 	GX_Init(gp_fifo,DEFAULT_FIFO_SIZE);
 
-	// clears the bg to color and clears the z buffer
-//	GX_SetCopyClear(background, 0x00ffffff);
-
-	// other gx setup
-//	GX_SetViewport(0,0,rmode->fbWidth,rmode->efbHeight,0,1);
-	yscale = GX_GetYScaleFactor(rmode->efbHeight,rmode->xfbHeight);
-	xfbHeight = GX_SetDispCopyYScale(yscale);
-//	GX_SetScissor(0,0,rmode->fbWidth,rmode->efbHeight);
-//	GX_SetDispCopySrc(0,0,rmode->fbWidth,rmode->efbHeight);
-//	GX_SetDispCopyDst(rmode->fbWidth,xfbHeight);
-//	GX_SetCopyFilter(rmode->aa,rmode->sample_pattern,GX_TRUE,rmode->vfilter);
-//	GX_SetFieldMode(rmode->field_rendering,((rmode->viHeight==2*rmode->xfbHeight)?GX_ENABLE:GX_DISABLE));
-
-//	if (rmode->aa)
-//		GX_SetPixelFmt(GX_PF_RGB565_Z16, GX_ZC_LINEAR);
-//	else
-//		GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
-
 #if ENABLE_CONSOLE==1
     console_init(frameBuffer[0],20,20,rmode->fbWidth,rmode->xfbHeight,rmode->fbWidth*VI_DISPLAY_PIX_SZ);
 #endif
-
-//	GX_SetCullMode(GX_CULL_NONE);
-//	GX_CopyDisp(frameBuffer[fb],GX_TRUE);
-//	GX_SetDispCopyGamma(GX_GM_1_0);
-
-//	GX_ClearVtxDesc();
-//	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
-
-//	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-
-//	GX_SetNumChans(1);
-//	GX_SetNumTexGens(0);
-//	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-//	GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-
-	guVector cam = {0.0F, 0.0F, 0.0F},
-	up = {0.0F, 1.0F, 0.0F},
-	look = {0.0F, 0.0F, -1.0F};
-
-	guLookAt(view, &cam, &up, &look);
-
-	f32 w = rmode->viWidth;
-	f32 h = rmode->viHeight;
-	guPerspective(perspective, 45, (f32)w/h, 0.1F, 300.0F);
-//	GX_LoadProjectionMtx(perspective, GX_PERSPECTIVE);
 
 	WPAD_Init();
 }
@@ -403,78 +350,9 @@ int main()
 {
 	Init();
 
-/*	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
-	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
-	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
-	wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
-	GX_End();*/
-
 	u8 data[512];
 	unsigned int idx = 0;
 	LoadDffData((u8*)&data[0], idx);
-/*#define PUSH_U8(val) data[idx++] = (val)
-#define PUSH_U16(val) { u16 mval = (val); memcpy(&data[idx], &mval, sizeof(u16)); idx += sizeof(u16); }
-#define PUSH_U32(val) { u32 mval = (val); memcpy(&data[idx], &mval, sizeof(u32)); idx += sizeof(u32); }
-#define PUSH_F32(val) { f32 mval = (val); memcpy(&data[idx], &mval, sizeof(f32)); idx += sizeof(f32); }
-
-	// Simple testing code
-	// GX_SetViewport
-	PUSH_U8(0x10);
-	PUSH_U32((u32)((5<<16)|0x101a));
-	PUSH_F32(rmode->fbWidth * 0.5);
-	PUSH_F32((-rmode->efbHeight) * 0.5);
-	PUSH_F32(1*16777215.0);
-	PUSH_F32(rmode->fbWidth * 0.5 + 342.0);
-	PUSH_F32(rmode->efbHeight * 0.5 + 342.0);
-	PUSH_F32(1*16777215.0);
-
-	// InvVtxCache
-	PUSH_U8(0x48);
-
-	guMtxIdentity(model);
-	guMtxTransApply(model, model, -1.5f,0.0f,-6.0f);
-	guMtxConcat(view,model,modelview);
-	PUSH_U8(0x10);
-	PUSH_U32((u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8))));
-	for (unsigned int i = 0;i < 12; ++i)
-		PUSH_F32(((f32*)modelview)[i]);
-
-	// Setup vtx desc
-	PUSH_U8(0x08);
-	PUSH_U8(0x50);
-	PUSH_U32(_SHIFTL(GX_DIRECT,9,2));
-
-	PUSH_U8(0x08);
-	PUSH_U8(0x60);
-	PUSH_U32(0);
-
-	PUSH_U8(0x10);
-	PUSH_U32(0x1008);
-	PUSH_U32(0);
-
-	// Draw a triangle
-	PUSH_U8(GX_TRIANGLES|(GX_VTXFMT0&7));
-	PUSH_U16(3);
-	PUSH_F32(0.0f); PUSH_F32(1.0f); PUSH_F32(0.0f); // Top
-	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
-	PUSH_F32(1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom right
-
-	guMtxTransApply(model, model, 3.0f,0.0f,0.0f);
-	guMtxConcat(view,model,modelview);
-	PUSH_U8(0x10);
-	PUSH_U32((u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8))));
-	for (unsigned int i = 0;i < 12; ++i)
-		PUSH_F32(((f32*)modelview)[i]);
-
-	// Draw a quad
-	PUSH_U8(GX_QUADS|(GX_VTXFMT0&7));
-	PUSH_U16(4);
-	PUSH_F32(-1.0f); PUSH_F32(1.0f); PUSH_F32(0.0f); // Top left
-	PUSH_F32(1.0f); PUSH_F32(1.0f); PUSH_F32(0.0f); // Top right
-	PUSH_F32(1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom right
-	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
-
-	printf ("Got %d bytes!!\n", idx);*/
 
 	for (unsigned int i = 0; i < idx; ++i)
 	{
@@ -524,12 +402,8 @@ int main()
 			}
 		}
 
-
 		// finish frame...
 #if ENABLE_CONSOLE!=1
-//		GX_DrawDone();
-//		GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-//		GX_SetColorUpdate(GX_TRUE);
 		GX_CopyDisp(frameBuffer[fb],GX_TRUE);
 
 		VIDEO_SetNextFramebuffer(frameBuffer[fb]);
