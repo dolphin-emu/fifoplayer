@@ -228,7 +228,7 @@ void LoadDffData(u8* data, unsigned int& size)
 		printf("Reading %d BP registers\n", bp_size);
 		for (unsigned int i = 0; i < bp_size; ++i)
 		{
-			if (!(i == BPMEM_TRIGGER_EFB_COPY
+			if ((i == BPMEM_TRIGGER_EFB_COPY
 				|| i == BPMEM_CLEARBBOX1
 				|| i == BPMEM_CLEARBBOX2
 				|| i == BPMEM_SETDRAWDONE
@@ -242,7 +242,7 @@ void LoadDffData(u8* data, unsigned int& size)
 				continue;
 
 			wgPipe->U8 = 0x61;
-			wgPipe->U32 = (i<<24)|(bp_ptr[i]&0xffffff);
+			wgPipe->U32 = (i<<24)|(le32toh(bp_ptr[i])&0xffffff);
 		}
 
 		#define LoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
@@ -250,22 +250,22 @@ void LoadDffData(u8* data, unsigned int& size)
 		u32* regs = (u32*)&dff_data[header.cpMemOffset];
 		printf("Reading CP memory\n");
 
-//		LoadCPReg(0x30, regs[0x30]);
-		LoadCPReg(0x40, regs[0x40]);
-		LoadCPReg(0x50, regs[0x50]);
-		LoadCPReg(0x60, regs[0x60]);
+		LoadCPReg(0x30, le32toh(regs[0x30]));
+		LoadCPReg(0x40, le32toh(regs[0x40]));
+		LoadCPReg(0x50, le32toh(regs[0x50]));
+		LoadCPReg(0x60, le32toh(regs[0x60]));
 
 		for (int i = 0; i < 8; ++i)
 		{
-//			LoadCPReg(0x70 + i, regs[0x70 + i]);
-			LoadCPReg(0x80 + i, regs[0x80 + i]);
-			LoadCPReg(0x90 + i, regs[0x90 + i]);
+			LoadCPReg(0x70 + i, le32toh(regs[0x70 + i]));
+			LoadCPReg(0x80 + i, le32toh(regs[0x80 + i]));
+			LoadCPReg(0x90 + i, le32toh(regs[0x90 + i]));
 		}
 
 		for (int i = 0; i < 16; ++i)
 		{
-			LoadCPReg(0xa0 + i, regs[0xa0 + i]);
-			LoadCPReg(0xb0 + i, regs[0xb0 + i]);
+			LoadCPReg(0xa0 + i, le32toh(regs[0xa0 + i]));
+			LoadCPReg(0xb0 + i, le32toh(regs[0xb0 + i]));
 		}
 
 		u32 xf_size = header.xfMemSize;
@@ -276,18 +276,21 @@ void LoadDffData(u8* data, unsigned int& size)
 			wgPipe->U8 = 0x10;
 			wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
 			for (int k = 0; k < 16; ++k)
-				wgPipe->U32 = xf_ptr[i + k];
+				wgPipe->U32 = le32toh(xf_ptr[i + k]);
 		}
 
-/*		u32 xf_regs_size = header.xfRegsSize;
+		u32 xf_regs_size = header.xfRegsSize;
 		u32* xf_regs_ptr = (u32*)&dff_data[header.xfRegsOffset];
 		printf("Reading %d XF registers\n", xf_regs_size);
-		for (unsigned int i = 0x20; i < 0x21; ++i)
+		for (unsigned int i = 0x0; i < xf_regs_size; ++i)
 		{
 			wgPipe->U8 = 0x10;
 			wgPipe->U32 = 0x1000 | (i&0x0fff);
-			wgPipe->U32 = xf_regs_ptr[i];
-		}*/
+			wgPipe->U32 = le32toh(xf_regs_ptr[i]);
+			u32 val = xf_regs_ptr[i];
+			val = le32toh(val);
+			printf("reg value: %f\n", *(f32*)&val);
+		}
 
 		for (int i = 0; i < 7; ++i)
 			wgPipe->U32 = 0;
@@ -308,6 +311,9 @@ u32 fb = 0;
 u32 first_frame = 1;
 Mtx view;
 Mtx model, modelview;
+
+#include <unistd.h>
+
 void Init()
 {
 	f32 yscale;
@@ -342,36 +348,40 @@ void Init()
 	GX_Init(gp_fifo,DEFAULT_FIFO_SIZE);
 
 	// clears the bg to color and clears the z buffer
-	GX_SetCopyClear(background, 0x00ffffff);
+//	GX_SetCopyClear(background, 0x00ffffff);
 
 	// other gx setup
-	GX_SetViewport(0,0,rmode->fbWidth,rmode->efbHeight,0,1);
+//	GX_SetViewport(0,0,rmode->fbWidth,rmode->efbHeight,0,1);
 	yscale = GX_GetYScaleFactor(rmode->efbHeight,rmode->xfbHeight);
 	xfbHeight = GX_SetDispCopyYScale(yscale);
-	GX_SetScissor(0,0,rmode->fbWidth,rmode->efbHeight);
-	GX_SetDispCopySrc(0,0,rmode->fbWidth,rmode->efbHeight);
-	GX_SetDispCopyDst(rmode->fbWidth,xfbHeight);
-	GX_SetCopyFilter(rmode->aa,rmode->sample_pattern,GX_TRUE,rmode->vfilter);
-	GX_SetFieldMode(rmode->field_rendering,((rmode->viHeight==2*rmode->xfbHeight)?GX_ENABLE:GX_DISABLE));
+//	GX_SetScissor(0,0,rmode->fbWidth,rmode->efbHeight);
+//	GX_SetDispCopySrc(0,0,rmode->fbWidth,rmode->efbHeight);
+//	GX_SetDispCopyDst(rmode->fbWidth,xfbHeight);
+//	GX_SetCopyFilter(rmode->aa,rmode->sample_pattern,GX_TRUE,rmode->vfilter);
+//	GX_SetFieldMode(rmode->field_rendering,((rmode->viHeight==2*rmode->xfbHeight)?GX_ENABLE:GX_DISABLE));
 
-	if (rmode->aa)
-		GX_SetPixelFmt(GX_PF_RGB565_Z16, GX_ZC_LINEAR);
-	else
-		GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
+//	if (rmode->aa)
+//		GX_SetPixelFmt(GX_PF_RGB565_Z16, GX_ZC_LINEAR);
+//	else
+//		GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
 
-	GX_SetCullMode(GX_CULL_NONE);
-	GX_CopyDisp(frameBuffer[fb],GX_TRUE);
-	GX_SetDispCopyGamma(GX_GM_1_0);
+#if ENABLE_CONSOLE==1
+    console_init(frameBuffer[0],20,20,rmode->fbWidth,rmode->xfbHeight,rmode->fbWidth*VI_DISPLAY_PIX_SZ);
+#endif
 
-	GX_ClearVtxDesc();
-	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+//	GX_SetCullMode(GX_CULL_NONE);
+//	GX_CopyDisp(frameBuffer[fb],GX_TRUE);
+//	GX_SetDispCopyGamma(GX_GM_1_0);
 
-	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+//	GX_ClearVtxDesc();
+//	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
 
-	GX_SetNumChans(1);
-	GX_SetNumTexGens(0);
-	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-	GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+//	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+
+//	GX_SetNumChans(1);
+//	GX_SetNumTexGens(0);
+//	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+//	GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 
 	guVector cam = {0.0F, 0.0F, 0.0F},
 	up = {0.0F, 1.0F, 0.0F},
@@ -382,13 +392,9 @@ void Init()
 	f32 w = rmode->viWidth;
 	f32 h = rmode->viHeight;
 	guPerspective(perspective, 45, (f32)w/h, 0.1F, 300.0F);
-	GX_LoadProjectionMtx(perspective, GX_PERSPECTIVE);
+//	GX_LoadProjectionMtx(perspective, GX_PERSPECTIVE);
 
 	WPAD_Init();
-
-#if ENABLE_CONSOLE==1
-    console_init(frameBuffer[0],20,20,rmode->fbWidth,rmode->xfbHeight,rmode->fbWidth*VI_DISPLAY_PIX_SZ);
-#endif
 }
 
 #include "mygx.h"
@@ -397,11 +403,11 @@ int main()
 {
 	Init();
 
-	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
+/*	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
 	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
 	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
 	wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
-	GX_End();
+	GX_End();*/
 
 	u8 data[512];
 	unsigned int idx = 0;
