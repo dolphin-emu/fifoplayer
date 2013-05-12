@@ -181,6 +181,23 @@ struct DffMemoryUpdate
 };
 #include "stdio.h"
 
+#define BPMEM_TRIGGER_EFB_COPY 0x52
+#define BPMEM_CLEARBBOX1       0x55
+#define BPMEM_CLEARBBOX2       0x56
+#define BPMEM_CLEAR_PIXEL_PERF 0x57
+#define BPMEM_SETDRAWDONE      0x45
+#define BPMEM_PE_TOKEN_ID      0x47
+#define BPMEM_PE_TOKEN_INT_ID  0x48
+#define BPMEM_PRELOAD_MODE     0x63
+#define BPMEM_LOADTLUT0        0x64
+#define BPMEM_LOADTLUT1        0x65
+#define BPMEM_TEXINVALIDATE    0x66
+
+
+#include <malloc.h>
+#include <gccore.h>
+#include <wiiuse/wpad.h>
+
 void LoadDffData(u8* data, unsigned int& size)
 {
 	DffFileHeader header;
@@ -204,14 +221,83 @@ void LoadDffData(u8* data, unsigned int& size)
 		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
 		memcpy (data, &dff_data[srcFrame.fifoDataOffset], srcFrame.fifoDataSize-5);
 		size = srcFrame.fifoDataSize-5;
+
+		// Apply initial state
+		u32 bp_size = header.bpMemSize;
+		u32* bp_ptr = (u32*)&dff_data[header.bpMemOffset];
+		printf("Reading %d BP registers\n", bp_size);
+		for (unsigned int i = 0; i < bp_size; ++i)
+		{
+			if (!(i == BPMEM_TRIGGER_EFB_COPY
+				|| i == BPMEM_CLEARBBOX1
+				|| i == BPMEM_CLEARBBOX2
+				|| i == BPMEM_SETDRAWDONE
+				|| i == BPMEM_PE_TOKEN_ID // TODO: Sure that we want to skip this one?
+				|| i == BPMEM_PE_TOKEN_INT_ID
+				|| i == BPMEM_LOADTLUT0
+				|| i == BPMEM_LOADTLUT1
+				|| i == BPMEM_TEXINVALIDATE
+				|| i == BPMEM_PRELOAD_MODE
+				|| i == BPMEM_CLEAR_PIXEL_PERF))
+				continue;
+
+			wgPipe->U8 = 0x61;
+			wgPipe->U32 = (i<<24)|(bp_ptr[i]&0xffffff);
+		}
+
+		#define LoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
+
+		u32* regs = (u32*)&dff_data[header.cpMemOffset];
+		printf("Reading CP memory\n");
+
+//		LoadCPReg(0x30, regs[0x30]);
+		LoadCPReg(0x40, regs[0x40]);
+		LoadCPReg(0x50, regs[0x50]);
+		LoadCPReg(0x60, regs[0x60]);
+
+		for (int i = 0; i < 8; ++i)
+		{
+//			LoadCPReg(0x70 + i, regs[0x70 + i]);
+			LoadCPReg(0x80 + i, regs[0x80 + i]);
+			LoadCPReg(0x90 + i, regs[0x90 + i]);
+		}
+
+		for (int i = 0; i < 16; ++i)
+		{
+			LoadCPReg(0xa0 + i, regs[0xa0 + i]);
+			LoadCPReg(0xb0 + i, regs[0xb0 + i]);
+		}
+
+		u32 xf_size = header.xfMemSize;
+		u32* xf_ptr = (u32*)&dff_data[header.xfMemOffset];
+		printf("Reading %d parts of XF memory\n", xf_size);
+		for (unsigned int i = 0; i < xf_size; i += 16)
+		{
+			wgPipe->U8 = 0x10;
+			wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
+			for (int k = 0; k < 16; ++k)
+				wgPipe->U32 = xf_ptr[i + k];
+		}
+
+/*		u32 xf_regs_size = header.xfRegsSize;
+		u32* xf_regs_ptr = (u32*)&dff_data[header.xfRegsOffset];
+		printf("Reading %d XF registers\n", xf_regs_size);
+		for (unsigned int i = 0x20; i < 0x21; ++i)
+		{
+			wgPipe->U8 = 0x10;
+			wgPipe->U32 = 0x1000 | (i&0x0fff);
+			wgPipe->U32 = xf_regs_ptr[i];
+		}*/
+
+		for (int i = 0; i < 7; ++i)
+			wgPipe->U32 = 0;
+		wgPipe->U16 = 0;
+		wgPipe->U8 = 0;
+
 	}
 }
 
 #pragma pack(pop)
-
-#include <malloc.h>
-#include <gccore.h>
-#include <wiiuse/wpad.h>
 
 #define DEFAULT_FIFO_SIZE   (256*1024)
 #define ENABLE_CONSOLE 0
@@ -311,6 +397,12 @@ int main()
 {
 	Init();
 
+	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
+	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
+	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
+	wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
+	GX_End();
+
 	u8 data[512];
 	unsigned int idx = 0;
 	LoadDffData((u8*)&data[0], idx);
@@ -377,11 +469,6 @@ int main()
 	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
 
 	printf ("Got %d bytes!!\n", idx);*/
-	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
-	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
-	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
-	wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
-	GX_End();
 
 	for (unsigned int i = 0; i < idx; ++i)
 	{
