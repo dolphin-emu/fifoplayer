@@ -201,8 +201,9 @@ void LoadDffData(u8* data, unsigned int& size)
 		srcFrame.FixEndianness();
 
 		printf("Frame %d got %d bytes of data (Start: 0x%#x, End: 0x%#x)\n", i, srcFrame.fifoDataSize, srcFrame.fifoStart, srcFrame.fifoEnd);
-		memcpy (data, &dff_data[srcFrame.fifoDataOffset+15], srcFrame.fifoDataSize-15-87);
-		size = srcFrame.fifoDataSize-15-87;
+		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
+		memcpy (data, &dff_data[srcFrame.fifoDataOffset], srcFrame.fifoDataSize-5);
+		size = srcFrame.fifoDataSize-5;
 	}
 }
 
@@ -213,7 +214,7 @@ void LoadDffData(u8* data, unsigned int& size)
 #include <wiiuse/wpad.h>
 
 #define DEFAULT_FIFO_SIZE   (256*1024)
-
+#define ENABLE_CONSOLE 0
 static void *frameBuffer[2] = { NULL, NULL};
 GXRModeObj *rmode;
 
@@ -299,7 +300,9 @@ void Init()
 
 	WPAD_Init();
 
-//    console_init(frameBuffer[0],20,20,rmode->fbWidth,rmode->xfbHeight,rmode->fbWidth*VI_DISPLAY_PIX_SZ);
+#if ENABLE_CONSOLE==1
+    console_init(frameBuffer[0],20,20,rmode->fbWidth,rmode->xfbHeight,rmode->fbWidth*VI_DISPLAY_PIX_SZ);
+#endif
 }
 
 #include "mygx.h"
@@ -310,8 +313,8 @@ int main()
 
 	u8 data[512];
 	unsigned int idx = 0;
-//	LoadDffData((u8*)&data[0], idx);
-#define PUSH_U8(val) data[idx++] = (val)
+	LoadDffData((u8*)&data[0], idx);
+/*#define PUSH_U8(val) data[idx++] = (val)
 #define PUSH_U16(val) { u16 mval = (val); memcpy(&data[idx], &mval, sizeof(u16)); idx += sizeof(u16); }
 #define PUSH_U32(val) { u32 mval = (val); memcpy(&data[idx], &mval, sizeof(u32)); idx += sizeof(u32); }
 #define PUSH_F32(val) { f32 mval = (val); memcpy(&data[idx], &mval, sizeof(f32)); idx += sizeof(f32); }
@@ -373,7 +376,7 @@ int main()
 	PUSH_F32(1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom right
 	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
 
-	printf ("Got %d bytes!!\n", idx);
+	printf ("Got %d bytes!!\n", idx);*/
 	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
 	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
 	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
@@ -383,6 +386,7 @@ int main()
 	for (unsigned int i = 0; i < idx; ++i)
 	{
 		printf("%02x", data[i]);
+		if (i == idx-5) printf("_");
 		if ((i % 4) == 3) printf(" ");
 		if ((i % 16) == 15) printf("\n");
 	}
@@ -393,8 +397,10 @@ int main()
 	int cur_frame = first_frame;
 	while (processing)
 	{
+#if ENABLE_CONSOLE!=1
 		for (unsigned int i = 0; i < idx; ++i)
 			wgPipe->U8 = data[i];
+#endif
 
 		// for (element = frame_elements[cur_frame])
 		{
@@ -427,9 +433,10 @@ int main()
 
 
 		// finish frame...
-		GX_DrawDone();
-		GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-		GX_SetColorUpdate(GX_TRUE);
+#if ENABLE_CONSOLE!=1
+//		GX_DrawDone();
+//		GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+//		GX_SetColorUpdate(GX_TRUE);
 		GX_CopyDisp(frameBuffer[fb],GX_TRUE);
 
 		VIDEO_SetNextFramebuffer(frameBuffer[fb]);
@@ -440,6 +447,7 @@ int main()
 		}
 
 		VIDEO_Flush();
+#endif
 		VIDEO_WaitVSync();
 		fb ^= 1;
 
