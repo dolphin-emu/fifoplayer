@@ -168,6 +168,70 @@ int main()
 {
 	Init();
 
+	u8 data[256];
+	unsigned int idx = 0;
+#define PUSH_U8(val) data[idx++] = (val)
+#define PUSH_U16(val) { u16 mval = (val); memcpy(&data[idx], &mval, sizeof(u16)); idx += sizeof(u16); }
+#define PUSH_U32(val) { u32 mval = (val); memcpy(&data[idx], &mval, sizeof(u32)); idx += sizeof(u32); }
+#define PUSH_F32(val) { f32 mval = (val); memcpy(&data[idx], &mval, sizeof(f32)); idx += sizeof(f32); }
+
+	// Simple testing code
+	// GX_SetViewport
+	PUSH_U8(0x10);
+	PUSH_U32((u32)((5<<16)|0x101a));
+	PUSH_F32(rmode->fbWidth * 0.5);
+	PUSH_F32((-rmode->efbHeight) * 0.5);
+	PUSH_F32(1*16777215.0);
+	PUSH_F32(rmode->fbWidth * 0.5 + 342.0);
+	PUSH_F32(rmode->efbHeight * 0.5 + 342.0);
+	PUSH_F32(1*16777215.0);
+
+	// InvVtxCache
+	PUSH_U8(0x48);
+
+	guMtxIdentity(model);
+	guMtxTransApply(model, model, -1.5f,0.0f,-6.0f);
+	guMtxConcat(view,model,modelview);
+	PUSH_U8(0x10);
+	PUSH_U32((u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8))));
+	for (unsigned int i = 0;i < 12; ++i)
+		PUSH_F32(((f32*)modelview)[i]);
+
+	// Setup vtx desc
+	PUSH_U8(0x08);
+	PUSH_U8(0x50);
+	PUSH_U32(_SHIFTL(GX_DIRECT,9,2));
+
+	PUSH_U8(0x08);
+	PUSH_U8(0x60);
+	PUSH_U32(0);
+
+	PUSH_U8(0x10);
+	PUSH_U32(0x1008);
+	PUSH_U32(0);
+
+	// Draw a triangle
+	PUSH_U8(GX_TRIANGLES|(GX_VTXFMT0&7));
+	PUSH_U16(3);
+	PUSH_F32(0.0f); PUSH_F32(1.0f); PUSH_F32(0.0f); // Top
+	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
+	PUSH_F32(1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom right
+
+	guMtxTransApply(model, model, 3.0f,0.0f,0.0f);
+	guMtxConcat(view,model,modelview);
+	PUSH_U8(0x10);
+	PUSH_U32((u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8))));
+	for (unsigned int i = 0;i < 12; ++i)
+		PUSH_F32(((f32*)modelview)[i]);
+
+	// Draw a quad
+	PUSH_U8(GX_QUADS|(GX_VTXFMT0&7));
+	PUSH_U16(4);
+	PUSH_F32(-1.0f); PUSH_F32(1.0f); PUSH_F32(0.0f); // Top left
+	PUSH_F32(1.0f); PUSH_F32(1.0f); PUSH_F32(0.0f); // Top right
+	PUSH_F32(1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom right
+	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
+
 	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
 	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
 	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
@@ -180,6 +244,9 @@ int main()
 	int cur_frame = first_frame;
 	while (processing)
 	{
+		for (unsigned int i = 0; i < idx; ++i)
+			wgPipe->U8 = data[i];
+
 		// for (element = frame_elements[cur_frame])
 		{
 			// switch (element.type)
@@ -209,66 +276,6 @@ int main()
 			}
 		}
 
-		// Simple testing code
-		// GX_SetViewport
-		wgPipe->U8 = 0x10;
-		wgPipe->U32 = (u32)((5<<16)|0x101a);
-		wgPipe->F32 = rmode->fbWidth * 0.5;
-		wgPipe->F32 = (-rmode->efbHeight) * 0.5;
-		wgPipe->F32 = 1*16777215.0;
-		wgPipe->F32 = rmode->fbWidth * 0.5 + 342.0;
-		wgPipe->F32 = rmode->efbHeight * 0.5 + 342.0;
-		wgPipe->F32 = 1*16777215.0;
-
-		// InvVtxCache
-		wgPipe->U8 = 0x48;
-
-		guMtxIdentity(model);
-		guMtxTransApply(model, model, -1.5f,0.0f,-6.0f);
-		guMtxConcat(view,model,modelview);
-		wgPipe->U8 = 0x10;
-		wgPipe->U32 = (u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8)));
-		for (unsigned int i = 0;i < 12; ++i)
-		{
-			wgPipe->F32 = ((f32*)modelview)[i];
-		}
-
-		// Setup vtx desc
-		wgPipe->U8 = 0x08;
-		wgPipe->U8 = 0x50;
-		wgPipe->U32 = _SHIFTL(GX_DIRECT,9,2);
-
-		wgPipe->U8 = 0x08;
-		wgPipe->U8 = 0x60;
-		wgPipe->U32 = 0;
-
-		wgPipe->U8 = 0x10;
-		wgPipe->U32 = 0x1008;
-		wgPipe->U32 = 0;
-
-		// Draw a triangle
-		wgPipe->U8 = GX_TRIANGLES|(GX_VTXFMT0&7);
-		wgPipe->U16 = 3;
-		wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
-		wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
-		wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
-
-		guMtxTransApply(model, model, 3.0f,0.0f,0.0f);
-		guMtxConcat(view,model,modelview);
-		wgPipe->U8 = 0x10;
-		wgPipe->U32 = (u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8)));
-		for (unsigned int i = 0;i < 12; ++i)
-		{
-			wgPipe->F32 = ((f32*)modelview)[i];
-		}
-
-		// Draw a quad
-		wgPipe->U8 = GX_QUADS|(GX_VTXFMT0&7);
-		wgPipe->U16 = 4;
-		wgPipe->F32 = -1.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top left
-		wgPipe->F32 = 1.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top right
-		wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
-		wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
 
 		// finish frame...
 		GX_DrawDone();
