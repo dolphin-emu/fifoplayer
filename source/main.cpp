@@ -210,19 +210,41 @@ int main()
 		}
 
 		// Simple testing code
-		MY_SetViewport(0,0,rmode->fbWidth,rmode->efbHeight,0,1);
+		// GX_SetViewport
+		wgPipe->U8 = 0x10;
+		wgPipe->U32 = (u32)((5<<16)|0x101a);
+		wgPipe->F32 = rmode->fbWidth * 0.5;
+		wgPipe->F32 = (-rmode->efbHeight) * 0.5;
+		wgPipe->F32 = 1*16777215.0;
+		wgPipe->F32 = rmode->fbWidth * 0.5 + 342.0;
+		wgPipe->F32 = rmode->efbHeight * 0.5 + 342.0;
+		wgPipe->F32 = 1*16777215.0;
 
-		wgPipe->U8 = 0x48; // InvVtxCache
+		// InvVtxCache
+		wgPipe->U8 = 0x48;
 
 		guMtxIdentity(model);
 		guMtxTransApply(model, model, -1.5f,0.0f,-6.0f);
 		guMtxConcat(view,model,modelview);
-		MY_LoadPosMtxImm(modelview, GX_PNMTX0);
+		wgPipe->U8 = 0x10;
+		wgPipe->U32 = (u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8)));
+		for (unsigned int i = 0;i < 12; ++i)
+		{
+			wgPipe->F32 = ((f32*)modelview)[i];
+		}
 
 		// Setup vtx desc
-		MY_LOAD_CP_REG(0x50, (_SHIFTL(GX_DIRECT,9,2)));
-		MY_LOAD_CP_REG(0x60, 0);
-		MY_LOAD_XF_REG(0x1008, 0);
+		wgPipe->U8 = 0x08;
+		wgPipe->U8 = 0x50;
+		wgPipe->U32 = _SHIFTL(GX_DIRECT,9,2);
+
+		wgPipe->U8 = 0x08;
+		wgPipe->U8 = 0x60;
+		wgPipe->U32 = 0;
+
+		wgPipe->U8 = 0x10;
+		wgPipe->U32 = 0x1008;
+		wgPipe->U32 = 0;
 
 		// Draw a triangle
 		wgPipe->U8 = GX_TRIANGLES|(GX_VTXFMT0&7);
@@ -233,15 +255,20 @@ int main()
 
 		guMtxTransApply(model, model, 3.0f,0.0f,0.0f);
 		guMtxConcat(view,model,modelview);
-		MY_LoadPosMtxImm(modelview, GX_PNMTX0);
+		wgPipe->U8 = 0x10;
+		wgPipe->U32 = (u32)((11<<16)|(_SHIFTL(GX_PNMTX0,2,8)));
+		for (unsigned int i = 0;i < 12; ++i)
+		{
+			wgPipe->F32 = ((f32*)modelview)[i];
+		}
 
 		// Draw a quad
 		wgPipe->U8 = GX_QUADS|(GX_VTXFMT0&7);
 		wgPipe->U16 = 4;
-		GX_Position3f32(-1.0f, 1.0f, 0.0f); // Top left
-		GX_Position3f32( 1.0f, 1.0f, 0.0f); // Top right
-		GX_Position3f32( 1.0f,-1.0f, 0.0f); // Bottom right
-		GX_Position3f32(-1.0f,-1.0f, 0.0f); // Bottom left
+		wgPipe->F32 = -1.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top left
+		wgPipe->F32 = 1.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top right
+		wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
+		wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
 
 		// finish frame...
 		GX_DrawDone();
