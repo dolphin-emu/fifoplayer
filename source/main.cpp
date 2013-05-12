@@ -2,9 +2,15 @@
 #include <string.h>
 #include <map>
 #include <vector>
+#include <stdint.h>
+#include <iostream>
+#include <machine/endian.h>
 
-typedef unsigned int u32;
-typedef unsigned char u8;
+typedef uint64_t u64;
+typedef uint32_t u32;
+typedef uint8_t u8;
+
+#include "data.h"
 
 std::map<u32, std::vector<u8> > memory_map; // map of memory chunks (indexed by starting address)
 
@@ -69,6 +75,138 @@ u8* GetPointer(u32 addr)
 
 	return NULL;
 }
+
+#if BYTE_ORDER==BIG_ENDIAN
+uint64_t le64toh(uint64_t val)
+{
+	return ((val&0xff)<<56)|((val&0xff00)<<40)|((val&0xff0000)<<24)|((val&0xff000000)<<8) |
+		((val&0xff00000000)>>8)|((val&0xff0000000000)>>24)|((val&0xff000000000000)>>40)|((val&0xff00000000000000)>>56);
+}
+
+uint32_t le32toh(uint32_t val)
+{
+	return ((val&0xff)<<24)|((val&0xff00)<<8)|((val&0xff0000)>>8)|((val&0xff000000)>>24);
+}
+
+uint16_t le16toh(uint16_t val)
+{
+	return ((val&0xff)<<8)|((val&0xff00)>>8);
+}
+
+
+#elif BYTE_ORDER==LITTLE_ENDIAN
+#error other stuff
+#endif
+
+#pragma pack(push, 4)
+
+union DffFileHeader {
+	struct {
+		u32 fileId;
+		u32 file_version;
+		u32 min_loader_version;
+		u64 bpMemOffset;
+		u32 bpMemSize;
+		u64 cpMemOffset;
+		u32 cpMemSize;
+		u64 xfMemOffset;
+		u32 xfMemSize;
+		u64 xfRegsOffset;
+		u32 xfRegsSize;
+		u64 frameListOffset;
+		u32 frameCount;
+		u32 flags;
+	};
+	u32 rawData[32];
+
+	void FixEndianness()
+	{
+		fileId = le32toh(fileId);
+		file_version = le32toh(file_version);
+		min_loader_version = le32toh(min_loader_version);
+		bpMemOffset = le64toh(bpMemOffset);
+		bpMemSize = le32toh(bpMemSize);
+		cpMemOffset = le64toh(cpMemOffset);
+		cpMemSize = le32toh(cpMemSize);
+		xfMemOffset = le64toh(xfMemOffset);
+		xfMemSize = le32toh(xfMemSize);
+		xfRegsOffset = le64toh(xfRegsOffset);
+		xfRegsSize = le32toh(xfRegsSize);
+		frameListOffset = le64toh(frameListOffset);
+		frameCount = le32toh(frameCount);
+		flags = le32toh(flags);
+	}
+};
+
+union DffFrameInfo
+{
+	struct
+	{
+		u64 fifoDataOffset;
+		u32 fifoDataSize;
+		u32 fifoStart;
+		u32 fifoEnd;
+		u64 memoryUpdatesOffset;
+		u32 numMemoryUpdates;
+	};
+	u32 rawData[16];
+
+	void FixEndianness()
+	{
+		fifoDataOffset = le64toh(fifoDataOffset);
+		fifoDataSize = le32toh(fifoDataSize);
+		fifoStart = le32toh(fifoStart);
+		fifoEnd = le32toh(fifoEnd);
+		memoryUpdatesOffset = le64toh(memoryUpdatesOffset);
+		numMemoryUpdates = le32toh(numMemoryUpdates);
+	}
+};
+
+struct DffMemoryUpdate
+{
+	u32 fifoPosition;
+	u32 address;
+	u64 dataOffset;
+	u32 dataSize;
+	u8 type;
+
+	void FixEndianness()
+	{
+		fifoPosition = le32toh(fifoPosition);
+		address = le32toh(address);
+		dataOffset = le64toh(dataOffset);
+		dataSize = le32toh(dataSize);
+//		le8toh(type);
+	}
+};
+#include "stdio.h"
+
+void LoadDffData(u8* data, unsigned int& size)
+{
+	DffFileHeader header;
+	memcpy(&header,  &dff_data[0], sizeof(DffFileHeader));
+	header.FixEndianness();
+
+	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 1)
+	{
+		printf ("file ID or version don't match!\n");
+	}
+	printf ("Got %d frame%s\n", header.frameCount, (header.frameCount == 1) ? "" : "s");
+
+	for (unsigned int i = 0;i < header.frameCount; ++i)
+	{
+		u64 frameOffset = header.frameListOffset + (i * sizeof(DffFrameInfo));
+		DffFrameInfo srcFrame;
+		memcpy(&srcFrame, &dff_data[frameOffset], sizeof(DffFrameInfo));
+		srcFrame.FixEndianness();
+
+		printf("Frame %d got %d bytes of data (Start: 0x%#x, End: 0x%#x)\n", i, srcFrame.fifoDataSize, srcFrame.fifoStart, srcFrame.fifoEnd);
+		memcpy (data, &dff_data[srcFrame.fifoDataOffset+15], srcFrame.fifoDataSize-15-87);
+		size = srcFrame.fifoDataSize-15-87;
+	}
+}
+
+#pragma pack(pop)
 
 #include <malloc.h>
 #include <gccore.h>
@@ -160,6 +298,8 @@ void Init()
 	GX_LoadProjectionMtx(perspective, GX_PERSPECTIVE);
 
 	WPAD_Init();
+
+//    console_init(frameBuffer[0],20,20,rmode->fbWidth,rmode->xfbHeight,rmode->fbWidth*VI_DISPLAY_PIX_SZ);
 }
 
 #include "mygx.h"
@@ -168,8 +308,9 @@ int main()
 {
 	Init();
 
-	u8 data[256];
+	u8 data[512];
 	unsigned int idx = 0;
+//	LoadDffData((u8*)&data[0], idx);
 #define PUSH_U8(val) data[idx++] = (val)
 #define PUSH_U16(val) { u16 mval = (val); memcpy(&data[idx], &mval, sizeof(u16)); idx += sizeof(u16); }
 #define PUSH_U32(val) { u32 mval = (val); memcpy(&data[idx], &mval, sizeof(u32)); idx += sizeof(u32); }
@@ -232,11 +373,19 @@ int main()
 	PUSH_F32(1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom right
 	PUSH_F32(-1.0f); PUSH_F32(-1.0f); PUSH_F32(0.0f); // Bottom left
 
+	printf ("Got %d bytes!!\n", idx);
 	GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3); // Apply dirty state
 	wgPipe->F32 = 0.0f; wgPipe->F32 = 1.0f; wgPipe->F32 = 0.0f; // Top
 	wgPipe->F32 = -1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom left
 	wgPipe->F32 = 1.0f; wgPipe->F32 = -1.0f; wgPipe->F32 = 0.0f; // Bottom right
 	GX_End();
+
+	for (unsigned int i = 0; i < idx; ++i)
+	{
+		printf("%02x", data[i]);
+		if ((i % 4) == 3) printf(" ");
+		if ((i % 16) == 15) printf("\n");
+	}
 
 	bool processing = true;
 	int first_frame = 0;
