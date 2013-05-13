@@ -91,40 +91,36 @@ void LoadCPReg(u32 subCmd, u32 value, CPMemory &cpMem)
 	switch (subCmd & 0xF0)
 	{
 	case 0x50:
-		// TODO: 0x50 and 0x60 still look wrong, they only have bitfields per byte reversed (not in the whole structure)
-		cpMem.vtxDesc.Hex &= ~le64toh(0x1FFFF);  // keep the Upper bits
-		cpMem.vtxDesc.Hex |= le64toh(value);
+		cpMem.vtxDesc.Hex &= ~0x1FFFF;  // keep the Upper bits
+		cpMem.vtxDesc.Hex |= value;
 		break;
 
 	case 0x60:
-		cpMem.vtxDesc.Hex &= le64toh(0x1FFFF);  // keep the lower 17Bits
-		cpMem.vtxDesc.Hex |= le64toh((u64)value * 131072);
+		cpMem.vtxDesc.Hex &= 0x1FFFF;  // keep the lower 17Bits
+		cpMem.vtxDesc.Hex |= (u64)value * 131072;
 		break;
 
 	case 0x70:
 //		_assert_((subCmd & 0x0F) < 8);
-		cpMem.vtxAttr[subCmd & 7].g0.Hex = /*le32toh(*/value/*)*/;
+		cpMem.vtxAttr[subCmd & 7].g0.Hex = value;
 		break;
 
 	case 0x80:
 //		_assert_((subCmd & 0x0F) < 8);
-		cpMem.vtxAttr[subCmd & 7].g1.Hex = /*le32toh(*/value/*)*/;
+		cpMem.vtxAttr[subCmd & 7].g1.Hex = value;
 		break;
 
 	case 0x90:
 //		_assert_((subCmd & 0x0F) < 8);
-		cpMem.vtxAttr[subCmd & 7].g2.Hex = /*le32toh(*/value/*)*/;
+		cpMem.vtxAttr[subCmd & 7].g2.Hex = value;
 		break;
 
 	case 0xA0:
-		// TODO: Endianness?
-		cpMem.arrayBases[subCmd & 0xF] = le32toh(value);
+		cpMem.arrayBases[subCmd & 0xF] = value;
 		break;
 
 	case 0xB0:
-		// TODO: Endianness?
-		cpMem.arrayStrides[subCmd & 0xF] = le32toh(value & 0xFF);
-		printf("Be careful :p\n");
+		cpMem.arrayStrides[subCmd & 0xF] = value & 0xFF;
 		break;
 	}
 }
@@ -140,14 +136,14 @@ void CalculateVertexElementSizes(int sizes[], int vatIndex, const CPMemory &cpMe
 
 	const u32 tcElements[8] =
 	{
-		vtxAttr.g0.Tex0CoordElements, vtxAttr.g1.Tex1CoordElements, vtxAttr.g1.Tex2CoordElements, 
+		vtxAttr.g0.Tex0CoordElements, vtxAttr.g1.Tex1CoordElements, vtxAttr.g1.Tex2CoordElements,
 		vtxAttr.g1.Tex3CoordElements, vtxAttr.g1.Tex4CoordElements, vtxAttr.g2.Tex5CoordElements,
 		vtxAttr.g2.Tex6CoordElements, vtxAttr.g2.Tex7CoordElements
 	};
 
 	const u32 tcFormat[8] =
 	{
-		vtxAttr.g0.Tex0CoordFormat, vtxAttr.g1.Tex1CoordFormat, vtxAttr.g1.Tex2CoordFormat, 
+		vtxAttr.g0.Tex0CoordFormat, vtxAttr.g1.Tex1CoordFormat, vtxAttr.g1.Tex2CoordFormat,
 		vtxAttr.g1.Tex3CoordFormat, vtxAttr.g1.Tex4CoordFormat, vtxAttr.g2.Tex5CoordFormat,
 		vtxAttr.g2.Tex6CoordFormat, vtxAttr.g2.Tex7CoordFormat
 	};

@@ -55,10 +55,25 @@ enum
 #pragma pack(4)
 union TVtxDesc
 {
-	// TODO: Bit order?
 	u64 Hex;
-	struct 
+	struct
 	{
+// Reversed
+#if BYTE_ORDER == BIG_ENDIAN
+		u32				:31;
+		u32 Tex7Coord	: 2;
+		u32 Tex6Coord	: 2;
+		u32 Tex5Coord	: 2;
+		u32 Tex4Coord	: 2;
+		u32 Tex3Coord	: 2;
+		u32 Tex2Coord	: 2;
+		u32 Tex1Coord	: 2;
+		u32 Tex0Coord	: 2;
+		u32 Color1		: 2;
+		u32 Color0		: 2;
+		u32 Normal		: 2;
+		u32 Position	: 2;
+		u32 Tex7MatIdx	: 1;
 		u32 Tex6MatIdx	: 1;
 		u32 Tex5MatIdx	: 1;
 		u32 Tex4MatIdx	: 1;
@@ -67,29 +82,7 @@ union TVtxDesc
 		u32 Tex1MatIdx	: 1;
 		u32 Tex0MatIdx	: 1;
 		u32 PosMatIdx	: 1;
-
-		u32 Color1		: 1; // TODO
-		u32 Color0		: 2;
-		u32 Normal		: 2;
-		u32 Position	: 2;
-		u32 Tex7MatIdx	: 1;
-
-		u32 Tex3Coord	: 1; // TODO
-		u32 Tex2Coord	: 2;
-		u32 Tex1Coord	: 2;
-		u32 Tex0Coord	: 2;
-		u32 Color1b		: 1;
-
-		u32 Tex7Coord	: 1; // TODO
-		u32 Tex6Coord	: 2;
-		u32 Tex5Coord	: 2;
-		u32 Tex4Coord	: 2;
-		u32 Tex3Coordb	: 1;
-
-		u32				:31;
-		u32 Tex7Coordb	: 1;
-
-#if 0
+#elif BYTE_ORDER == LITTLE_ENDIAN
 		u32 PosMatIdx	: 1;
 		u32 Tex0MatIdx	: 1;
 		u32 Tex1MatIdx	: 1;
@@ -113,6 +106,8 @@ union TVtxDesc
 		u32 Tex6Coord	: 2;
 		u32 Tex7Coord	: 2;
 		u32				:31;
+#else
+#error endianness not defined
 #endif
 	};
 
@@ -126,7 +121,7 @@ union TVtxDesc
 union UVAT_group0
 {
 	u32 Hex;
-	struct 
+	struct
 	{
 // TODO: Is it necessary to reverse the bitfield order? oO
 #if BYTE_ORDER == BIG_ENDIAN

@@ -10,7 +10,7 @@ typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint8_t u8;
 
-#include "data.h"
+#include "data_3.h"
 
 std::map<u32, std::vector<u8> > memory_map; // map of memory chunks (indexed by starting address)
 
@@ -236,7 +236,7 @@ struct FifoFrameData
 	std::vector<MemoryUpdate> memoryUpdates;
 };
 
-#define ENABLE_CONSOLE 1
+#define ENABLE_CONSOLE 0
 struct FifoData
 {
 	std::vector<FifoFrameData> frames;
@@ -377,6 +377,8 @@ struct AnalyzedFrameInfo
 #include "BPMemory.h"
 #include "FifoAnalyzer.h"
 
+#include <unistd.h>
+
 class FifoDataAnalyzer
 {
 public:
@@ -514,6 +516,7 @@ public:
 				else
 				{
 					printf("Invalid fifo command 0x%x\n", cmd);
+					sleep(1);
 				}
 				break;
 		}
@@ -534,8 +537,6 @@ GXRModeObj *rmode;
 
 u32 fb = 0;
 u32 first_frame = 1;
-
-#include <unistd.h>
 
 void Init()
 {
