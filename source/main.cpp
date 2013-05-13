@@ -197,7 +197,105 @@ struct DffMemoryUpdate
 #include <gccore.h>
 #include <wiiuse/wpad.h>
 
-void LoadDffData(u8* data, unsigned int& size)
+struct MemoryUpdate
+{
+	enum Type {
+		TEXTURE_MAP = 0x01,
+		XF_DATA = 0x02,
+		VERTEX_STREAM = 0x04,
+		TMEM = 0x08,
+	};
+
+	u32 fifoPosition;
+	u32 address;
+	std::vector<u8> data;
+	Type type;
+};
+
+struct FifoFrameData
+{
+	std::vector<u8> fifoData;
+	u32 fifoStart;
+	u32 fifoEnd;
+
+	// Sorted by position - TODO: Make this a map instead?
+	std::vector<MemoryUpdate> memoryUpdates;
+};
+
+struct FifoData
+{
+	std::vector<FifoFrameData> frames;
+
+	std::vector<u32> bpmem;
+	std::vector<u32> cpmem;
+	std::vector<u32> xfmem;
+	std::vector<u32> xfregs;
+
+	void ApplyInitialState()
+	{
+		for (unsigned int i = 0; i < bpmem.size(); ++i)
+		{
+			if ((i == BPMEM_TRIGGER_EFB_COPY
+				|| i == BPMEM_CLEARBBOX1
+				|| i == BPMEM_CLEARBBOX2
+				|| i == BPMEM_SETDRAWDONE
+				|| i == BPMEM_PE_TOKEN_ID // TODO: Sure that we want to skip this one?
+				|| i == BPMEM_PE_TOKEN_INT_ID
+				|| i == BPMEM_LOADTLUT0
+				|| i == BPMEM_LOADTLUT1
+				|| i == BPMEM_TEXINVALIDATE
+				|| i == BPMEM_PRELOAD_MODE
+				|| i == BPMEM_CLEAR_PIXEL_PERF))
+				continue;
+
+			wgPipe->U8 = 0x61;
+			wgPipe->U32 = (i<<24)|(le32toh(bpmem[i])&0xffffff);
+		}
+
+		#define LoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
+
+		LoadCPReg(0x30, le32toh(cpmem[0x30]));
+		LoadCPReg(0x40, le32toh(cpmem[0x40]));
+		LoadCPReg(0x50, le32toh(cpmem[0x50]));
+		LoadCPReg(0x60, le32toh(cpmem[0x60]));
+
+		for (int i = 0; i < 8; ++i)
+		{
+			LoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
+			LoadCPReg(0x80 + i, le32toh(cpmem[0x80 + i]));
+			LoadCPReg(0x90 + i, le32toh(cpmem[0x90 + i]));
+		}
+
+		for (int i = 0; i < 16; ++i)
+		{
+			LoadCPReg(0xa0 + i, le32toh(cpmem[0xa0 + i]));
+			LoadCPReg(0xb0 + i, le32toh(cpmem[0xb0 + i]));
+		}
+
+		for (unsigned int i = 0; i < xfmem.size(); i += 16)
+		{
+			wgPipe->U8 = 0x10;
+			wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
+			for (int k = 0; k < 16; ++k)
+				wgPipe->U32 = le32toh(xfmem[i + k]);
+		}
+
+		for (unsigned int i = 0; i < xfregs.size(); ++i)
+		{
+			wgPipe->U8 = 0x10;
+			wgPipe->U32 = 0x1000 | (i&0x0fff);
+			wgPipe->U32 = le32toh(xfregs[i]);
+		}
+
+		// Flush WGP
+		for (int i = 0; i < 7; ++i)
+			wgPipe->U32 = 0;
+		wgPipe->U16 = 0;
+		wgPipe->U8 = 0;
+	}
+};
+
+void LoadDffData(FifoData& out)
 {
 	DffFileHeader header;
 	memcpy(&header,  &dff_data[0], sizeof(DffFileHeader));
@@ -217,87 +315,34 @@ void LoadDffData(u8* data, unsigned int& size)
 		srcFrame.FixEndianness();
 
 		printf("Frame %d got %d bytes of data (Start: 0x%#x, End: 0x%#x)\n", i, srcFrame.fifoDataSize, srcFrame.fifoStart, srcFrame.fifoEnd);
+
+		out.frames.push_back(FifoFrameData());
+		FifoFrameData& dstFrame = out.frames[i];
 		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
-		memcpy (data, &dff_data[srcFrame.fifoDataOffset], srcFrame.fifoDataSize-5);
-		size = srcFrame.fifoDataSize-5;
-
-		// Apply initial state
-		u32 bp_size = header.bpMemSize;
-		u32* bp_ptr = (u32*)&dff_data[header.bpMemOffset];
-		printf("Reading %d BP registers\n", bp_size);
-		for (unsigned int i = 0; i < bp_size; ++i)
-		{
-			if ((i == BPMEM_TRIGGER_EFB_COPY
-				|| i == BPMEM_CLEARBBOX1
-				|| i == BPMEM_CLEARBBOX2
-				|| i == BPMEM_SETDRAWDONE
-				|| i == BPMEM_PE_TOKEN_ID // TODO: Sure that we want to skip this one?
-				|| i == BPMEM_PE_TOKEN_INT_ID
-				|| i == BPMEM_LOADTLUT0
-				|| i == BPMEM_LOADTLUT1
-				|| i == BPMEM_TEXINVALIDATE
-				|| i == BPMEM_PRELOAD_MODE
-				|| i == BPMEM_CLEAR_PIXEL_PERF))
-				continue;
-
-			wgPipe->U8 = 0x61;
-			wgPipe->U32 = (i<<24)|(le32toh(bp_ptr[i])&0xffffff);
-		}
-
-		#define LoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
-
-		u32* regs = (u32*)&dff_data[header.cpMemOffset];
-		printf("Reading CP memory\n");
-
-		LoadCPReg(0x30, le32toh(regs[0x30]));
-		LoadCPReg(0x40, le32toh(regs[0x40]));
-		LoadCPReg(0x50, le32toh(regs[0x50]));
-		LoadCPReg(0x60, le32toh(regs[0x60]));
-
-		for (int i = 0; i < 8; ++i)
-		{
-			LoadCPReg(0x70 + i, le32toh(regs[0x70 + i]));
-			LoadCPReg(0x80 + i, le32toh(regs[0x80 + i]));
-			LoadCPReg(0x90 + i, le32toh(regs[0x90 + i]));
-		}
-
-		for (int i = 0; i < 16; ++i)
-		{
-			LoadCPReg(0xa0 + i, le32toh(regs[0xa0 + i]));
-			LoadCPReg(0xb0 + i, le32toh(regs[0xb0 + i]));
-		}
-
-		u32 xf_size = header.xfMemSize;
-		u32* xf_ptr = (u32*)&dff_data[header.xfMemOffset];
-		printf("Reading %d parts of XF memory\n", xf_size);
-		for (unsigned int i = 0; i < xf_size; i += 16)
-		{
-			wgPipe->U8 = 0x10;
-			wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
-			for (int k = 0; k < 16; ++k)
-				wgPipe->U32 = le32toh(xf_ptr[i + k]);
-		}
-
-		u32 xf_regs_size = header.xfRegsSize;
-		u32* xf_regs_ptr = (u32*)&dff_data[header.xfRegsOffset];
-		printf("Reading %d XF registers\n", xf_regs_size);
-		for (unsigned int i = 0x0; i < xf_regs_size; ++i)
-		{
-			wgPipe->U8 = 0x10;
-			wgPipe->U32 = 0x1000 | (i&0x0fff);
-			wgPipe->U32 = le32toh(xf_regs_ptr[i]);
-			u32 val = xf_regs_ptr[i];
-			val = le32toh(val);
-			printf("reg value: %f\n", *(f32*)&val);
-		}
-
-		// Flush WGP
-		for (int i = 0; i < 7; ++i)
-			wgPipe->U32 = 0;
-		wgPipe->U16 = 0;
-		wgPipe->U8 = 0;
-
+		dstFrame.fifoData.reserve(srcFrame.fifoDataSize-5);
+		dstFrame.fifoData.insert(dstFrame.fifoData.begin(), &dff_data[srcFrame.fifoDataOffset], &dff_data[srcFrame.fifoDataOffset]+srcFrame.fifoDataSize-5);
 	}
+
+	// Save initial state
+	u32 bp_size = header.bpMemSize;
+	u32* bp_ptr = (u32*)&dff_data[header.bpMemOffset];
+	out.bpmem.reserve(bp_size);
+	out.bpmem.insert(out.bpmem.begin(), bp_ptr, bp_ptr + bp_size);
+
+	u32 cp_size = header.cpMemSize;
+	u32* cp_ptr = (u32*)&dff_data[header.cpMemOffset];
+	out.cpmem.reserve(cp_size);
+	out.cpmem.insert(out.cpmem.begin(), cp_ptr, cp_ptr + cp_size);
+
+	u32 xf_size = header.xfMemSize;
+	u32* xf_ptr = (u32*)&dff_data[header.xfMemOffset];
+	out.xfmem.reserve(xf_size);
+	out.xfmem.insert(out.xfmem.begin(), xf_ptr, xf_ptr + xf_size);
+
+	u32 xf_regs_size = header.xfRegsSize;
+	u32* xf_regs_ptr = (u32*)&dff_data[header.xfRegsOffset];
+	out.xfregs.reserve(xf_regs_size);
+	out.xfregs.insert(out.xfregs.begin(), xf_regs_ptr, xf_regs_ptr + xf_regs_size);
 }
 
 #pragma pack(pop)
@@ -350,14 +395,13 @@ int main()
 {
 	Init();
 
-	u8 data[512];
-	unsigned int idx = 0;
-	LoadDffData((u8*)&data[0], idx);
+	FifoData fifo_data;
+	LoadDffData(fifo_data);
 
-	for (unsigned int i = 0; i < idx; ++i)
+	for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
 	{
-		printf("%02x", data[i]);
-		if (i == idx-5) printf("_");
+		printf("%02x", fifo_data.frames[0].fifoData[i]);
+		if (i == fifo_data.frames[0].fifoData.size()-5) printf("_");
 		if ((i % 4) == 3) printf(" ");
 		if ((i % 16) == 15) printf("\n");
 	}
@@ -369,8 +413,11 @@ int main()
 	while (processing)
 	{
 #if ENABLE_CONSOLE!=1
-		for (unsigned int i = 0; i < idx; ++i)
-			wgPipe->U8 = data[i];
+		if (cur_frame == 0)
+			fifo_data.ApplyInitialState();
+
+		for (unsigned int i = 0; i < fifo_data.frames[cur_frame].fifoData.size(); ++i)
+			wgPipe->U8 = fifo_data.frames[cur_frame].fifoData[i];
 #endif
 
 		// for (element = frame_elements[cur_frame])
