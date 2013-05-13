@@ -408,7 +408,7 @@ int main()
 
 	bool processing = true;
 	int first_frame = 0;
-	int last_frame = 0;
+	int last_frame = first_frame + fifo_data.frames.size()-1;
 	int cur_frame = first_frame;
 	while (processing)
 	{
