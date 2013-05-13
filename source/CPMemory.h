@@ -55,6 +55,7 @@ enum
 #pragma pack(4)
 union TVtxDesc
 {
+	// TODO: Bit order?
 	u64 Hex;
 	struct 
 	{
@@ -183,6 +184,32 @@ union UVAT_group1
 	u32 Hex;
 	struct 
 	{
+#if BYTE_ORDER == BIG_ENDIAN
+// Reversed
+
+		// 
+		u32						: 1;
+
+		// 27:30
+		u32 Tex4CoordFormat		: 3;
+		u32 Tex4CoordElements	: 1;
+
+		// 18:26
+		u32 Tex3Frac			: 5;
+		u32 Tex3CoordFormat		: 3;
+		u32 Tex3CoordElements	: 1;
+
+		// 9:17
+		u32 Tex2Frac			: 5;
+		u32 Tex2CoordFormat		: 3;
+		u32 Tex2CoordElements	: 1;
+
+		// 0:8
+		u32 Tex1Frac			: 5;
+		u32 Tex1CoordFormat		: 3;
+		u32 Tex1CoordElements	: 1;
+
+#elif BYTE_ORDER == LITTLE_ENDIAN
 		// 0:8
 		u32 Tex1CoordElements	: 1;
 		u32 Tex1CoordFormat		: 3;
@@ -200,6 +227,9 @@ union UVAT_group1
 		u32 Tex4CoordFormat		: 3;
 		// 
 		u32						: 1;
+#else
+#error endianness not defined
+#endif
 	};
 };
 
@@ -208,6 +238,24 @@ union UVAT_group2
 	u32 Hex;
 	struct 
 	{
+// reversed
+
+#if BYTE_ORDER == BIG_ENDIAN
+		// 23:31
+		u32 Tex7Frac			: 5;
+		u32 Tex7CoordFormat		: 3;
+		u32 Tex7CoordElements	: 1;
+		// 14:22
+		u32 Tex6Frac			: 5;
+		u32 Tex6CoordFormat		: 3;
+		u32 Tex6CoordElements	: 1;
+		// 5:13
+		u32 Tex5Frac			: 5;
+		u32 Tex5CoordFormat		: 3;
+		u32 Tex5CoordElements	: 1;
+		// 0:4
+		u32 Tex4Frac			: 5;
+#elif BYTE_ORDER == LITTLE_ENDIAN
 		// 0:4
 		u32 Tex4Frac			: 5;
 		// 5:13
@@ -222,6 +270,9 @@ union UVAT_group2
 		u32 Tex7CoordElements	: 1;
 		u32 Tex7CoordFormat		: 3;
 		u32 Tex7Frac			: 5;
+#else
+#error endianness not defined
+#endif
 	};
 };
 
@@ -254,6 +305,8 @@ struct TVtxAttr
 // Matrix indices
 union TMatrixIndexA
 {
+	// TODO: Bit order!
+
 	struct
 	{
 		u32 PosNormalMtxIdx : 6;
@@ -271,6 +324,7 @@ union TMatrixIndexA
 
 union TMatrixIndexB
 {
+	// TODO: Bit order!
 	struct
 	{
 		u32 Tex4MtxIdx : 6;

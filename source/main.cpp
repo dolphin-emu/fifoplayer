@@ -268,18 +268,15 @@ struct FifoData
 			wgPipe->U32 = (i<<24)|(le32toh(bpmem[i])&0xffffff);
 		}
 #endif
-		#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
 
 #if ENABLE_CONSOLE!=1
+		#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
+
 		MLoadCPReg(0x30, le32toh(cpmem[0x30]));
 		MLoadCPReg(0x40, le32toh(cpmem[0x40]));
 		MLoadCPReg(0x50, le32toh(cpmem[0x50]));
 		MLoadCPReg(0x60, le32toh(cpmem[0x60]));
-#endif
-//		printf("MLoading 0x50: %08x\n", cpmem[0x50]);
-//		printf("MLoading 0x60: %08x\n", cpmem[0x60]);
 
-#if ENABLE_CONSOLE!=1
 		for (int i = 0; i < 8; ++i)
 		{
 			MLoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
@@ -372,6 +369,7 @@ struct AnalyzedFrameInfo
 {
 	std::vector<u32> object_starts;
 	std::vector<u32> object_ends;
+	std::vector<u32> cmd_starts;
 //	std::vector<MemoryUpdate> memory_updates;
 };
 
@@ -423,6 +421,7 @@ public:
 					else
 						dst_frame.object_ends.push_back(cmd_start);
 				}
+				dst_frame.cmd_starts.push_back(cmd_start);
 				cmd_start += cmd_size;
 			}
 			if (dst_frame.object_ends.size() < dst_frame.object_starts.size())
@@ -507,9 +506,7 @@ public:
 				{
 					m_drawingObject = true;
 					u32 vtxAttrGroup = cmd & GX_VAT_MASK;
-					//printf("stff %08x\n", vtxAttrGroup);
 					int vertex_size = CalculateVertexSize(vtxAttrGroup, m_cpmem);
-//					printf("VS: %x\n", vertex_size);
 
 					u16 stream_size = ReadFifo16(data);
 					data += stream_size * vertex_size;
@@ -591,11 +588,13 @@ int main()
 	int cur_frame = first_frame;
 	while (processing)
 	{
+		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
+		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
 		if (cur_frame == 0)
 			fifo_data.ApplyInitialState();
-#if ENABLE_CONSOLE!=1
 
-		for (unsigned int i = 0; i < fifo_data.frames[cur_frame].fifoData.size(); ++i)
+		std::vector<u32>::iterator next_cmd_start = cur_analyzed_frame.cmd_starts.begin();
+		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
 		{
 			// switch (element.type)
 			{
@@ -622,9 +621,27 @@ int main()
 					// memcpy (GetPointer(element.start_addr), element.data, element.size);
 					// break;
 			}
-			wgPipe->U8 = fifo_data.frames[cur_frame].fifoData[i];
+			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
+			{
+				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
+				{
+					if (cur_frame_data.fifoData[i+3] == BPMEM_TX_SETIMAGE3 ||
+						cur_frame_data.fifoData[i+1] == BPMEM_TX_SETIMAGE3 ||
+						cur_frame_data.fifoData[i+2] == BPMEM_TX_SETIMAGE3 ||
+						cur_frame_data.fifoData[i+4] == BPMEM_TX_SETIMAGE3)
+					{
+						TexImage3* img = (TexImage3*)&cur_frame_data.fifoData[i+1];
+						printf("Loading BP reg %x!\n", img->image_base);
+					}
+				}
+				++next_cmd_start;
+			}
+#if ENABLE_CONSOLE!=1
+			wgPipe->U8 = cur_frame_data.fifoData[i];
+#endif
 		}
 
+#if ENABLE_CONSOLE!=1
 		// finish frame...
 		GX_CopyDisp(frameBuffer[fb],GX_TRUE);
 
