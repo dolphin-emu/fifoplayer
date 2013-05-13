@@ -1,10 +1,15 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <malloc.h>
 #include <map>
 #include <vector>
 #include <stdint.h>
 #include <iostream>
 #include <machine/endian.h>
+#include <malloc.h>
+#include <gccore.h>
+#include <wiiuse/wpad.h>
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -12,7 +17,56 @@ typedef uint8_t u8;
 
 #include "data_3.h"
 
-std::map<u32, std::vector<u8> > memory_map; // map of memory chunks (indexed by starting address)
+class aligned_buf
+{
+public:
+	aligned_buf() : buf(NULL), size(0), alignment(32) {}
+	aligned_buf(int alignment) : buf(NULL), size(0), alignment(alignment) {}
+	~aligned_buf()
+	{
+		free(buf);
+	}
+
+	aligned_buf(const aligned_buf& oth)
+	{
+		if (oth.buf)
+		{
+			buf = (u8*)memalign(oth.alignment, oth.size);
+			printf("copied to %p (%x) \n", buf, MEM_VIRTUAL_TO_PHYSICAL(buf));
+			memcpy(buf, oth.buf, oth.size);
+		}
+		else buf = NULL;
+		size = oth.size;
+		alignment = oth.alignment;
+	}
+
+	void resize(int new_size)
+	{
+		if (!buf)
+		{
+			buf = (u8*)memalign(alignment, new_size);
+			printf("allocated to %p (%x) - size %x \n", buf, MEM_VIRTUAL_TO_PHYSICAL(buf), new_size);
+
+		}
+		else
+		{
+			u8* old_buf = buf;
+			buf = (u8*)memalign(alignment, new_size);
+			memcpy(buf, old_buf, std::min(new_size, size));
+			printf("reallocated to %p (%x)\n", buf, MEM_VIRTUAL_TO_PHYSICAL(buf));
+			free(old_buf);
+		}
+		size = new_size;
+	}
+
+	u8* buf;
+	int size;
+
+private:
+	int alignment;
+};
+
+std::map<u32, aligned_buf > memory_map; // map of memory chunks (indexed by starting address)
 
 bool IntersectsMemoryRange(u32 start1, u32 size1, u32 start2, u32 size2)
 {
@@ -30,21 +84,21 @@ void PrepareMemoryLoad(u32 start_addr, u32 size)
 	// Find overlaps with existing memory chunks
 	for (auto it = memory_map.begin(); it != memory_map.end(); ++it)
 	{
-		if (IntersectsMemoryRange(it->first, it->second.size(), start_addr, size))
+		if (IntersectsMemoryRange(it->first, it->second.size, start_addr, size))
 		{
 			affected_elements.push_back(it->first);
 			if (it->first < new_start_addr)
 				new_start_addr = it->first;
-			if (it->first + it->second.size() > new_end_addr + 1)
-				new_end_addr = it->first + it->second.size() - 1;
+			if (it->first + it->second.size > new_end_addr + 1)
+				new_end_addr = it->first + it->second.size - 1;
 		}
 	}
 
-	std::vector<u8>& new_memchunk = memory_map[new_start_addr]; // creates a new vector or uses the existing one
+	aligned_buf& new_memchunk(memory_map[new_start_addr]); // creates a new vector or uses the existing one
 	u32 new_size = new_end_addr - new_start_addr + 1;
 
 	// if the new memory range is inside an existing chunk, there's nothing to do
-	if (new_memchunk.size() == new_size)
+	if (new_memchunk.size == new_size)
 		return;
 
 	// resize chunk to required size, move old content to it, replace old arrays with new one
@@ -57,8 +111,8 @@ void PrepareMemoryLoad(u32 start_addr, u32 size)
 		// first chunk is already in new_memchunk
 		if (addr != new_start_addr)
 		{
-			std::vector<u8>& src = memory_map[addr];
-			memcpy(&new_memchunk[addr - new_start_addr], &src[0], src.size());
+			aligned_buf& src = memory_map[addr];
+			memcpy(&new_memchunk.buf[addr - new_start_addr], &src.buf[0], src.size);
 			memory_map.erase(addr);
 		}
 		affected_elements.pop_back();
@@ -71,8 +125,8 @@ void PrepareMemoryLoad(u32 start_addr, u32 size)
 u8* GetPointer(u32 addr)
 {
 	for (auto it = memory_map.begin(); it != memory_map.end(); ++it)
-		if (addr >= it->first && addr < it->first + it->second.size())
-			return &it->second[addr - it->first];
+		if (addr >= it->first && addr < it->first + it->second.size)
+			return &it->second.buf[addr - it->first];
 
 	return NULL;
 }
@@ -198,7 +252,6 @@ struct DffMemoryUpdate
 		dataSize = le32toh(dataSize);
 	}
 };
-#include "stdio.h"
 
 #define BPMEM_TRIGGER_EFB_COPY 0x52
 #define BPMEM_CLEARBBOX1       0x55
@@ -213,9 +266,6 @@ struct DffMemoryUpdate
 #define BPMEM_TEXINVALIDATE    0x66
 
 
-#include <malloc.h>
-#include <gccore.h>
-#include <wiiuse/wpad.h>
 
 struct MemoryUpdate
 {
