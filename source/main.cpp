@@ -93,6 +93,20 @@ uint16_t le16toh(uint16_t val)
 	return ((val&0xff)<<8)|((val&0xff00)>>8);
 }
 
+uint64_t be64toh(uint64_t val)
+{
+	return val;
+}
+
+uint32_t be32toh(uint32_t val)
+{
+	return val;
+}
+
+uint16_t be16toh(uint16_t val)
+{
+	return val;
+}
 
 #elif BYTE_ORDER==LITTLE_ENDIAN
 #error other stuff
@@ -252,25 +266,26 @@ struct FifoData
 			wgPipe->U32 = (i<<24)|(le32toh(bpmem[i])&0xffffff);
 		}
 
-		#define LoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
+		#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
 
-		LoadCPReg(0x30, le32toh(cpmem[0x30]));
-		LoadCPReg(0x40, le32toh(cpmem[0x40]));
-		LoadCPReg(0x50, le32toh(cpmem[0x50]));
-		LoadCPReg(0x60, le32toh(cpmem[0x60]));
+		MLoadCPReg(0x30, le32toh(cpmem[0x30]));
+		MLoadCPReg(0x40, le32toh(cpmem[0x40]));
+		MLoadCPReg(0x50, le32toh(cpmem[0x50]));
+		MLoadCPReg(0x60, le32toh(cpmem[0x60]));
 
 		for (int i = 0; i < 8; ++i)
 		{
-			LoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
-			LoadCPReg(0x80 + i, le32toh(cpmem[0x80 + i]));
-			LoadCPReg(0x90 + i, le32toh(cpmem[0x90 + i]));
+			MLoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
+			MLoadCPReg(0x80 + i, le32toh(cpmem[0x80 + i]));
+			MLoadCPReg(0x90 + i, le32toh(cpmem[0x90 + i]));
 		}
 
 		for (int i = 0; i < 16; ++i)
 		{
-			LoadCPReg(0xa0 + i, le32toh(cpmem[0xa0 + i]));
-			LoadCPReg(0xb0 + i, le32toh(cpmem[0xb0 + i]));
+			MLoadCPReg(0xa0 + i, le32toh(cpmem[0xa0 + i]));
+			MLoadCPReg(0xb0 + i, le32toh(cpmem[0xb0 + i]));
 		}
+		#undef MLoadCPReg
 
 		for (unsigned int i = 0; i < xfmem.size(); i += 16)
 		{
@@ -345,6 +360,160 @@ void LoadDffData(FifoData& out)
 	out.xfregs.insert(out.xfregs.begin(), xf_regs_ptr, xf_regs_ptr + xf_regs_size);
 }
 
+struct AnalyzedFrameInfo
+{
+	std::vector<u32> object_starts;
+	std::vector<u32> object_ends;
+//	std::vector<MemoryUpdate> memory_updates;
+};
+
+#include "OpcodeDecoding.h"
+#include "BPMemory.h"
+#include "FifoAnalyzer.h"
+
+class FifoDataAnalyzer
+{
+public:
+	void AnalyzeFrames(FifoData& data, std::vector<AnalyzedFrameInfo>& frame_info)
+	{
+		// TODO: Load BP mem
+
+		u32 *cpMem = &data.cpmem[0];
+		LoadCPReg(0x50, cpMem[0x50], m_cpmem);
+		LoadCPReg(0x60, cpMem[0x60], m_cpmem);
+
+		for (int i = 0; i < 8; ++i)
+		{
+			LoadCPReg(0x70 + i, cpMem[0x70 + i], m_cpmem);
+			LoadCPReg(0x80 + i, cpMem[0x80 + i], m_cpmem);
+			LoadCPReg(0x90 + i, cpMem[0x90 + i], m_cpmem);
+		}
+
+		frame_info.clear();
+		frame_info.resize(data.frames.size());
+
+		m_drawingObject = false;
+
+		for (unsigned int frame_idx = 0; frame_idx < data.frames.size(); ++frame_idx)
+		{
+			FifoFrameData& src_frame = data.frames[frame_idx];
+			AnalyzedFrameInfo& dst_frame = frame_info[frame_idx];
+
+			u32 cmd_start = 0;
+
+			while (cmd_start < src_frame.fifoData.size())
+			{
+				bool was_drawing = m_drawingObject;
+				u32 cmd_size = DecodeCommand(&src_frame.fifoData[cmd_start]);
+
+				// TODO: Check that cmd_size != 0
+
+				if (was_drawing != m_drawingObject)
+				{
+					if (m_drawingObject)
+						dst_frame.object_starts.push_back(cmd_start);
+					else
+						dst_frame.object_ends.push_back(cmd_start);
+				}
+				cmd_start += cmd_size;
+			}
+			if (dst_frame.object_ends.size() < dst_frame.object_starts.size())
+				dst_frame.object_ends.push_back(cmd_start);
+		}
+	}
+
+	u32 DecodeCommand(u8* data)
+	{
+		u8* data_start = data;
+
+		u8 cmd = ReadFifo8(data);
+
+		switch (cmd)
+		{
+			case GX_NOP:
+			case 0x44:
+			case GX_CMD_INVL_VC:
+				break;
+
+			case GX_LOAD_CP_REG:
+			{
+				m_drawingObject = false;
+
+				u32 cmd2 = ReadFifo8(data);
+				u32 value = ReadFifo32(data);
+				LoadCPReg(cmd2, value, m_cpmem);
+				break;
+			}
+
+			case GX_LOAD_XF_REG:
+			{
+				m_drawingObject = false;
+
+				u32 cmd2 = ReadFifo32(data);
+				u8 stream_size = ((cmd2 >> 16) & 0xf) + 1; // TODO: Check if this works!
+
+				data += stream_size * 4;
+				break;
+			}
+
+			case GX_LOAD_INDX_A:
+			case GX_LOAD_INDX_B:
+			case GX_LOAD_INDX_C:
+			case GX_LOAD_INDX_D:
+				m_drawingObject = false;
+				data += 4;
+				break;
+
+			case GX_CMD_CALL_DL:
+				// The recorder should have expanded display lists into the fifo stream and skipped the call to start them
+				// That is done to make it easier to track where memory is updated
+				//_assert_(false);
+				printf("Shouldn't have a DL here...\n");
+				data += 8;
+				break;
+
+			case GX_LOAD_BP_REG:
+			{
+				m_drawingObject = false;
+
+				u32 cmd2 = ReadFifo32(data);
+				//BPCmd bp = FifoAnalyzer::DecodeBPCmd(cmd2, m_BpMem); // TODO
+
+				//FifoAnalyzer::LoadBPReg(bp, m_BpMem);
+				// TODO: Load BP reg..
+
+				// TODO
+//				if (bp.address == BPMEM_TRIGGER_EFB_COPY)
+//					StoreEfbCopyRegion();
+
+				break;
+			}
+
+			default:
+				if (cmd & 0x80)
+				{
+					m_drawingObject = true;
+					u32 vtxAttrGroup = cmd & GX_VAT_MASK;
+					int vertex_size = CalculateVertexSize(vtxAttrGroup, m_cpmem);
+
+					u16 stream_size = ReadFifo16(data);
+					data += stream_size * vertex_size;
+				}
+				else
+				{
+					printf("Invalid fifo command 0x%x\n", cmd);
+				}
+				break;
+		}
+		return data - data_start;
+	}
+
+private:
+	bool m_drawingObject;
+
+	CPMemory m_cpmem;
+};
+
 #pragma pack(pop)
 
 #define DEFAULT_FIFO_SIZE   (256*1024)
@@ -398,6 +567,10 @@ int main()
 	FifoData fifo_data;
 	LoadDffData(fifo_data);
 
+	FifoDataAnalyzer analyzer;
+	std::vector<AnalyzedFrameInfo> analyzed_frames;
+	analyzer.AnalyzeFrames(fifo_data, analyzed_frames);
+
 	for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
 	{
 		printf("%02x", fifo_data.frames[0].fifoData[i]);
@@ -417,10 +590,6 @@ int main()
 			fifo_data.ApplyInitialState();
 
 		for (unsigned int i = 0; i < fifo_data.frames[cur_frame].fifoData.size(); ++i)
-			wgPipe->U8 = fifo_data.frames[cur_frame].fifoData[i];
-#endif
-
-		// for (element = frame_elements[cur_frame])
 		{
 			// switch (element.type)
 			{
@@ -447,10 +616,10 @@ int main()
 					// memcpy (GetPointer(element.start_addr), element.data, element.size);
 					// break;
 			}
+			wgPipe->U8 = fifo_data.frames[cur_frame].fifoData[i];
 		}
 
 		// finish frame...
-#if ENABLE_CONSOLE!=1
 		GX_CopyDisp(frameBuffer[fb],GX_TRUE);
 
 		VIDEO_SetNextFramebuffer(frameBuffer[fb]);
