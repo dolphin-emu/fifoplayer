@@ -20,6 +20,7 @@ bool IntersectsMemoryRange(u32 start1, u32 size1, u32 start2, u32 size2)
 			(start2 >= start1 && start2 < start1 + size1));
 }
 
+// TODO: Needs to take care of alignment, too!
 void PrepareMemoryLoad(u32 start_addr, u32 size)
 {
 	std::vector<u32> affected_elements;
@@ -86,6 +87,11 @@ uint64_t le64toh(uint64_t val)
 uint32_t le32toh(uint32_t val)
 {
 	return ((val&0xff)<<24)|((val&0xff00)<<8)|((val&0xff0000)>>8)|((val&0xff000000)>>24);
+}
+
+uint32_t h32tole(uint32_t val)
+{
+	return le32toh(val);
 }
 
 uint16_t le16toh(uint16_t val)
@@ -236,6 +242,7 @@ struct FifoFrameData
 	std::vector<MemoryUpdate> memoryUpdates;
 };
 
+#include "BPMemory.h"
 #define ENABLE_CONSOLE 0
 struct FifoData
 {
@@ -248,7 +255,6 @@ struct FifoData
 
 	void ApplyInitialState()
 	{
-#if ENABLE_CONSOLE!=1
 		for (unsigned int i = 0; i < bpmem.size(); ++i)
 		{
 			if ((i == BPMEM_TRIGGER_EFB_COPY
@@ -264,10 +270,24 @@ struct FifoData
 				|| i == BPMEM_CLEAR_PIXEL_PERF))
 				continue;
 
+			u32 new_value = bpmem[i];
+
+			// Patch texture addresses - TODO: Should be done for other textures, too ;)
+			if (i == 0x94)
+			{
+				u32 tempval = le32toh(new_value);
+				TexImage3* img = (TexImage3*)&tempval;
+				u32 addr = img->image_base << 5;
+				u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
+				img->image_base = new_addr >> 5;
+				new_value = h32tole(tempval);
+			}
+
+#if ENABLE_CONSOLE!=1
 			wgPipe->U8 = 0x61;
-			wgPipe->U32 = (i<<24)|(le32toh(bpmem[i])&0xffffff);
-		}
+			wgPipe->U32 = (i<<24)|(le32toh(new_value)&0xffffff);
 #endif
+		}
 
 #if ENABLE_CONSOLE!=1
 		#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
@@ -334,13 +354,31 @@ void LoadDffData(FifoData& out)
 		memcpy(&srcFrame, &dff_data[frameOffset], sizeof(DffFrameInfo));
 		srcFrame.FixEndianness();
 
-		printf("Frame %d got %d bytes of data (Start: 0x%#x, End: 0x%#x)\n", i, srcFrame.fifoDataSize, srcFrame.fifoStart, srcFrame.fifoEnd);
+//		printf("Frame %d got %d bytes of data (Start: 0x%#x, End: 0x%#x)\n", i, srcFrame.fifoDataSize, srcFrame.fifoStart, srcFrame.fifoEnd);
 
 		out.frames.push_back(FifoFrameData());
 		FifoFrameData& dstFrame = out.frames[i];
 		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
 		dstFrame.fifoData.reserve(srcFrame.fifoDataSize-5);
 		dstFrame.fifoData.insert(dstFrame.fifoData.begin(), &dff_data[srcFrame.fifoDataOffset], &dff_data[srcFrame.fifoDataOffset]+srcFrame.fifoDataSize-5);
+
+		u64 memoryUpdatesOffset;
+		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
+		for (unsigned int i = 0;i < srcFrame.numMemoryUpdates; ++i)
+		{
+			u64 updateOffset = srcFrame.memoryUpdatesOffset + (i * sizeof(DffMemoryUpdate));
+			DffMemoryUpdate srcUpdate;
+			memcpy(&srcUpdate, &dff_data[updateOffset], sizeof(DffMemoryUpdate));
+			srcUpdate.FixEndianness();
+
+			MemoryUpdate& dstUpdate = dstFrame.memoryUpdates[i];
+			dstUpdate.address = srcUpdate.address;
+			dstUpdate.fifoPosition = srcUpdate.fifoPosition;
+			dstUpdate.data.resize(srcUpdate.dataSize);
+			dstUpdate.type = (MemoryUpdate::Type) srcUpdate.type;
+
+			memcpy(&dstUpdate.data[0], &dff_data[srcUpdate.dataOffset], srcUpdate.dataSize);
+		}
 	}
 
 	// Save initial state
@@ -374,7 +412,6 @@ struct AnalyzedFrameInfo
 };
 
 #include "OpcodeDecoding.h"
-#include "BPMemory.h"
 #include "FifoAnalyzer.h"
 
 #include <unistd.h>
@@ -438,9 +475,9 @@ public:
 		u8 cmd = ReadFifo8(data);
 
 		static int stuff = 0;
-		printf("%02x ", cmd);
+//		printf("%02x ", cmd);
 		++stuff;
-		if ((stuff % 16) == 15) printf("\n");
+//		if ((stuff % 16) == 15) printf("\n");
 		switch (cmd)
 		{
 			case GX_NOP:
@@ -592,7 +629,20 @@ int main()
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
 		if (cur_frame == 0)
+		{
+			for (unsigned int frameNum = 0; frameNum < fifo_data.frames.size(); ++frameNum)
+			{
+				const FifoFrameData &frame = fifo_data.frames[frameNum];
+				for (unsigned int i = 0; i < frame.memoryUpdates.size(); ++i)
+				{
+					printf("Mem update at %x (size %x)\n", frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
+					PrepareMemoryLoad(frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
+					memcpy(GetPointer(frame.memoryUpdates[i].address), &frame.memoryUpdates[i].data[0], frame.memoryUpdates[i].data.size());
+				}
+			}
+
 			fifo_data.ApplyInitialState();
+		}
 
 		std::vector<u32>::iterator next_cmd_start = cur_analyzed_frame.cmd_starts.begin();
 		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
@@ -622,7 +672,7 @@ int main()
 					// memcpy (GetPointer(element.start_addr), element.data, element.size);
 					// break;
 			}
-			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
+			/*if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
 			{
 				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
 				{
@@ -634,9 +684,12 @@ int main()
 						TexImage3* img = (TexImage3*)&cur_frame_data.fifoData[i+1];
 						printf("Loading BP reg %x!\n", img->image_base);
 					}
+					printf("Loading BP reg %x!\n", cur_frame_data.fifoData[i+3]);
 				}
 				++next_cmd_start;
-			}
+			}*/
+
+
 #if ENABLE_CONSOLE!=1
 			wgPipe->U8 = cur_frame_data.fifoData[i];
 #endif

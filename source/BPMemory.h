@@ -495,7 +495,15 @@ union TexImage3
 {
 	struct 
 	{
+#if BYTE_ORDER == BIG_ENDIAN
+		u32 unused : 8;
 		u32 image_base: 24;  //address in memory >> 5 (was 20 for GC)
+#elif BYTE_ORDER == LITTLE_ENDIAN
+		u32 image_base: 24;  //address in memory >> 5 (was 20 for GC)
+		u32 unused : 8;
+#else
+#error endianness not defined
+#endif
 	};
 	u32 hex;
 };
