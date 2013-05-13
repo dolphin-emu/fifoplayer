@@ -236,6 +236,7 @@ struct FifoFrameData
 	std::vector<MemoryUpdate> memoryUpdates;
 };
 
+#define ENABLE_CONSOLE 1
 struct FifoData
 {
 	std::vector<FifoFrameData> frames;
@@ -247,6 +248,7 @@ struct FifoData
 
 	void ApplyInitialState()
 	{
+#if ENABLE_CONSOLE!=1
 		for (unsigned int i = 0; i < bpmem.size(); ++i)
 		{
 			if ((i == BPMEM_TRIGGER_EFB_COPY
@@ -265,14 +267,19 @@ struct FifoData
 			wgPipe->U8 = 0x61;
 			wgPipe->U32 = (i<<24)|(le32toh(bpmem[i])&0xffffff);
 		}
-
+#endif
 		#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
 
+#if ENABLE_CONSOLE!=1
 		MLoadCPReg(0x30, le32toh(cpmem[0x30]));
 		MLoadCPReg(0x40, le32toh(cpmem[0x40]));
 		MLoadCPReg(0x50, le32toh(cpmem[0x50]));
 		MLoadCPReg(0x60, le32toh(cpmem[0x60]));
+#endif
+//		printf("MLoading 0x50: %08x\n", cpmem[0x50]);
+//		printf("MLoading 0x60: %08x\n", cpmem[0x60]);
 
+#if ENABLE_CONSOLE!=1
 		for (int i = 0; i < 8; ++i)
 		{
 			MLoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
@@ -307,6 +314,7 @@ struct FifoData
 			wgPipe->U32 = 0;
 		wgPipe->U16 = 0;
 		wgPipe->U8 = 0;
+#endif
 	}
 };
 
@@ -379,14 +387,14 @@ public:
 		// TODO: Load BP mem
 
 		u32 *cpMem = &data.cpmem[0];
-		LoadCPReg(0x50, cpMem[0x50], m_cpmem);
-		LoadCPReg(0x60, cpMem[0x60], m_cpmem);
+		LoadCPReg(0x50, le32toh(cpMem[0x50]), m_cpmem);
+		LoadCPReg(0x60, le32toh(cpMem[0x60]), m_cpmem);
 
 		for (int i = 0; i < 8; ++i)
 		{
-			LoadCPReg(0x70 + i, cpMem[0x70 + i], m_cpmem);
-			LoadCPReg(0x80 + i, cpMem[0x80 + i], m_cpmem);
-			LoadCPReg(0x90 + i, cpMem[0x90 + i], m_cpmem);
+			LoadCPReg(0x70 + i, le32toh(cpMem[0x70 + i]), m_cpmem);
+			LoadCPReg(0x80 + i, le32toh(cpMem[0x80 + i]), m_cpmem);
+			LoadCPReg(0x90 + i, le32toh(cpMem[0x90 + i]), m_cpmem);
 		}
 
 		frame_info.clear();
@@ -428,6 +436,10 @@ public:
 
 		u8 cmd = ReadFifo8(data);
 
+		static int stuff = 0;
+		printf("%02x ", cmd);
+		++stuff;
+		if ((stuff % 16) == 15) printf("\n");
 		switch (cmd)
 		{
 			case GX_NOP:
@@ -477,6 +489,7 @@ public:
 				m_drawingObject = false;
 
 				u32 cmd2 = ReadFifo32(data);
+//				printf("BP: %02x %08x\n", cmd, cmd2);
 				//BPCmd bp = FifoAnalyzer::DecodeBPCmd(cmd2, m_BpMem); // TODO
 
 				//FifoAnalyzer::LoadBPReg(bp, m_BpMem);
@@ -494,7 +507,9 @@ public:
 				{
 					m_drawingObject = true;
 					u32 vtxAttrGroup = cmd & GX_VAT_MASK;
+					//printf("stff %08x\n", vtxAttrGroup);
 					int vertex_size = CalculateVertexSize(vtxAttrGroup, m_cpmem);
+//					printf("VS: %x\n", vertex_size);
 
 					u16 stream_size = ReadFifo16(data);
 					data += stream_size * vertex_size;
@@ -517,7 +532,6 @@ private:
 #pragma pack(pop)
 
 #define DEFAULT_FIFO_SIZE   (256*1024)
-#define ENABLE_CONSOLE 0
 static void *frameBuffer[2] = { NULL, NULL};
 GXRModeObj *rmode;
 
@@ -571,23 +585,15 @@ int main()
 	std::vector<AnalyzedFrameInfo> analyzed_frames;
 	analyzer.AnalyzeFrames(fifo_data, analyzed_frames);
 
-	for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
-	{
-		printf("%02x", fifo_data.frames[0].fifoData[i]);
-		if (i == fifo_data.frames[0].fifoData.size()-5) printf("_");
-		if ((i % 4) == 3) printf(" ");
-		if ((i % 16) == 15) printf("\n");
-	}
-
 	bool processing = true;
 	int first_frame = 0;
 	int last_frame = first_frame + fifo_data.frames.size()-1;
 	int cur_frame = first_frame;
 	while (processing)
 	{
-#if ENABLE_CONSOLE!=1
 		if (cur_frame == 0)
 			fifo_data.ApplyInitialState();
+#if ENABLE_CONSOLE!=1
 
 		for (unsigned int i = 0; i < fifo_data.frames[cur_frame].fifoData.size(); ++i)
 		{
@@ -647,8 +653,22 @@ int main()
 		// home = stop
 		WPAD_ScanPads();
 
+//		if (WPAD_ButtonsDown(0) & WPAD_BUTTON_HOME)
+//			processing = false;
+
 		if (WPAD_ButtonsDown(0) & WPAD_BUTTON_HOME)
-			processing = false;
+		{
+			printf("\n");
+			for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
+			{
+				printf("%02x", fifo_data.frames[0].fifoData[i]);
+				if (i == fifo_data.frames[0].fifoData.size()-5) printf("_");
+//				if ((i % 4) == 3) printf(" ");
+//				if ((i % 16) == 15) printf("\n");
+				if ((i % 4) == 3) printf(" ");
+				if ((i % 24) == 23) printf("\n");
+			}
+		}
 
 		++cur_frame;
 		cur_frame = first_frame + ((cur_frame-first_frame) % (last_frame-first_frame+1));

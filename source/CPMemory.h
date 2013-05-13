@@ -58,8 +58,37 @@ union TVtxDesc
 	u64 Hex;
 	struct 
 	{
-		// 0: not present
-		// 1: present
+		u32 Tex6MatIdx	: 1;
+		u32 Tex5MatIdx	: 1;
+		u32 Tex4MatIdx	: 1;
+		u32 Tex3MatIdx	: 1;
+		u32 Tex2MatIdx	: 1;
+		u32 Tex1MatIdx	: 1;
+		u32 Tex0MatIdx	: 1;
+		u32 PosMatIdx	: 1;
+
+		u32 Color1		: 1; // TODO
+		u32 Color0		: 2;
+		u32 Normal		: 2;
+		u32 Position	: 2;
+		u32 Tex7MatIdx	: 1;
+
+		u32 Tex3Coord	: 1; // TODO
+		u32 Tex2Coord	: 2;
+		u32 Tex1Coord	: 2;
+		u32 Tex0Coord	: 2;
+		u32 Color1b		: 1;
+
+		u32 Tex7Coord	: 1; // TODO
+		u32 Tex6Coord	: 2;
+		u32 Tex5Coord	: 2;
+		u32 Tex4Coord	: 2;
+		u32 Tex3Coordb	: 1;
+
+		u32				:31;
+		u32 Tex7Coordb	: 1;
+
+#if 0
 		u32 PosMatIdx	: 1;
 		u32 Tex0MatIdx	: 1;
 		u32 Tex1MatIdx	: 1;
@@ -70,10 +99,6 @@ union TVtxDesc
 		u32 Tex6MatIdx	: 1;
 		u32 Tex7MatIdx	: 1;
 
-		// 00: not present 
-		// 01: direct 
-		// 10: 8 bit index 
-		// 11: 16 bit index
 		u32 Position	: 2;
 		u32 Normal		: 2;
 		u32 Color0		: 2;
@@ -87,12 +112,14 @@ union TVtxDesc
 		u32 Tex6Coord	: 2;
 		u32 Tex7Coord	: 2;
 		u32				:31;
+#endif
 	};
 
 	struct
 	{
 		u32 Hex0, Hex1;
 	};
+	u8 byte[8];
 };
 
 union UVAT_group0
@@ -100,27 +127,55 @@ union UVAT_group0
 	u32 Hex;
 	struct 
 	{
-		// 0:8
-		u32 PosElements			: 1;
-		u32 PosFormat			: 3; 
-		u32 PosFrac				: 5; 
-		// 9:12
-		u32 NormalElements		: 1; 
-		u32 NormalFormat		: 3; 
-		// 13:16
-		u32 Color0Elements		: 1;
-		u32 Color0Comp			: 3; 
-		// 17:20
-		u32 Color1Elements		: 1;
-		u32 Color1Comp			: 3; 
-		// 21:29
-		u32 Tex0CoordElements	: 1;
-		u32 Tex0CoordFormat		: 3;
-		u32 Tex0Frac			: 5;
-		// 30:31
-		u32 ByteDequant			: 1;
+// TODO: Is it necessary to reverse the bitfield order? oO
+#if BYTE_ORDER == BIG_ENDIAN
+		// 25:31
 		u32 NormalIndex3		: 1;
+		u32 ByteDequant			: 1;
+		u32 Tex0Frac			: 5;
+
+		// 17:24
+		u32 Tex0CoordFormat		: 3;
+		u32 Tex0CoordElements	: 1;
+		u32 Color1Comp			: 3; 
+		u32 Color1Elements		: 1;
+
+		// 9:16
+		u32 Color0Comp			: 3; 
+		u32 Color0Elements		: 1;
+		u32 NormalFormat		: 3; 
+		u32 NormalElements		: 1; 
+
+		// 0:8
+		u32 PosFrac				: 5; 
+		u32 PosFormat			: 3; 
+		u32 PosElements			: 1;
+#elif BYTE_ORDER == LITTLE_ENDIAN
+        // 1:8
+        u32 PosElements         : 1;
+        u32 PosFormat           : 3; 
+        u32 PosFrac             : 5; 
+        // 9:12
+        u32 NormalElements      : 1; 
+        u32 NormalFormat        : 3; 
+        // 13:16
+        u32 Color0Elements      : 1;
+        u32 Color0Comp          : 3; 
+        // 17:20
+        u32 Color1Elements      : 1;
+        u32 Color1Comp          : 3; 
+        // 21:29
+        u32 Tex0CoordElements   : 1;
+        u32 Tex0CoordFormat     : 3;
+        u32 Tex0Frac            : 5;
+        // 30:31
+        u32 ByteDequant         : 1;
+        u32 NormalIndex3        : 1;
+#else
+#error endianness not defined
+#endif
 	};
+	u8 byte[4];
 };
 
 union UVAT_group1
