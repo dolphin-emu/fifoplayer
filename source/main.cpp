@@ -10,12 +10,11 @@
 #include <malloc.h>
 #include <gccore.h>
 #include <wiiuse/wpad.h>
+#include <unistd.h>
 
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint8_t u8;
-
-#include "data_3.h"
 
 class aligned_buf
 {
@@ -293,7 +292,7 @@ struct FifoFrameData
 };
 
 #include "BPMemory.h"
-#define ENABLE_CONSOLE 0
+#define ENABLE_CONSOLE 1
 struct FifoData
 {
 	std::vector<FifoFrameData> frames;
@@ -385,8 +384,33 @@ struct FifoData
 	}
 };
 
+#include "fat.h"
+#include <dirent.h>
+
 void LoadDffData(FifoData& out)
 {
+	if(!fatInitDefault())
+	{
+		printf("fatInitDefault failed!\n");
+	}
+
+	u8* dff_data = NULL;
+
+	off_t fsize = 0;
+
+	struct stat st;
+	if (stat ("sd:/3_textures.dff", &st) == 0)
+		fsize = st.st_size;
+
+	dff_data = new u8[st.st_size];
+
+	FILE* file = fopen("sd:/3_textures.dff", "r");
+	if (!file)
+		printf("Failed to open file!\n");
+
+	size_t numread = fread(dff_data, st.st_size, 1, file);
+	printf("Read %llx bytes\n", numread * st.st_size);
+
 	DffFileHeader header;
 	memcpy(&header,  &dff_data[0], sizeof(DffFileHeader));
 	header.FixEndianness();
@@ -451,6 +475,8 @@ void LoadDffData(FifoData& out)
 	u32* xf_regs_ptr = (u32*)&dff_data[header.xfRegsOffset];
 	out.xfregs.reserve(xf_regs_size);
 	out.xfregs.insert(out.xfregs.begin(), xf_regs_ptr, xf_regs_ptr + xf_regs_size);
+
+	delete[] dff_data;
 }
 
 struct AnalyzedFrameInfo
@@ -464,7 +490,6 @@ struct AnalyzedFrameInfo
 #include "OpcodeDecoding.h"
 #include "FifoAnalyzer.h"
 
-#include <unistd.h>
 
 class FifoDataAnalyzer
 {
