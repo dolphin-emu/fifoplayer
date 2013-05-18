@@ -389,7 +389,9 @@ struct FifoData
 #include "fat.h"
 #include <dirent.h>
 
-#define DFF_FILENAME "sd:/4_efbcopies_new.dff"
+//#define DFF_FILENAME "sd:/4_efbcopies_new.dff"
+//#define DFF_FILENAME "sd:/3_textures_new.dff"
+#define DFF_FILENAME "sd:/5_mkdd.dff"
 
 void LoadDffData(FifoData& out)
 {
@@ -771,10 +773,26 @@ int main()
 						u32 new_value = /*h32tobe*/(tempval);
 
 						wgPipe->U8 = cur_frame_data.fifoData[i];
+						wgPipe->U32 = (cur_frame_data.fifoData[i+1]<<24)|(/*be32toh*/(new_value)&0xffffff);
+
+						i += 4;
+						skip_stuff = true;
+					}
+					else if (cur_frame_data.fifoData[i+1] == BPMEM_PRELOAD_ADDR)
+					{
+						// TODO
+					}
+					else if (cur_frame_data.fifoData[i+1] == BPMEM_LOADTLUT0)
+					{
+#if 0
+						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
+
+						wgPipe->U8 = cur_frame_data.fifoData[i];
 						wgPipe->U32 = (i<<24)|(/*be32toh*/(new_value)&0xffffff);
 
 						i += 4;
 						skip_stuff = true;
+#endif
 					}
 					else if (cur_frame_data.fifoData[i+1] == BPMEM_EFB_ADDR)
 					{
@@ -784,6 +802,7 @@ int main()
 					}
 					else if (cur_frame_data.fifoData[i+1] == BPMEM_TRIGGER_EFB_COPY)
 					{
+#if 1
 						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
 						UPE_Copy* copy = (UPE_Copy*)&tempval;
 						if (!copy->copy_to_xfb)
@@ -796,7 +815,7 @@ int main()
 							wgPipe->U8 = 0x61;
 							wgPipe->U32 = (i<<24)|(/*be32toh*/(new_value)&0xffffff);
 						}
-
+#endif
 						// General TODO: when changing memory ranges, texture addresses need to be reset...
 					}
 				}

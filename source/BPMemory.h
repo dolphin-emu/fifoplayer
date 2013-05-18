@@ -891,7 +891,7 @@ union AlphaTest
 union UPE_Copy
 {
 	u32 Hex;
-	struct 
+	struct
 	{
 #if BYTE_ORDER == BIG_ENDIAN
 		u32	auto_conv			: 1; // if 0 automatic color conversion by texture format and pixel type
@@ -933,8 +933,15 @@ union BPU_PreloadTileInfo
 	u32 hex;
 	struct
 	{
+#if BYTE_ORDER == BIG_ENDIAN
+		u32 type : 2;
+		u32 count : 15;
+#elif BYTE_ORDER == LITTLE_ENDIAN
 		u32 count : 15;
 		u32 type : 2;
+#else
+#error endianness undefined
+#endif
 	};
 };
 
