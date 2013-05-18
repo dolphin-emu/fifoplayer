@@ -391,7 +391,7 @@ struct FifoData
 
 //#define DFF_FILENAME "sd:/4_efbcopies_new.dff"
 //#define DFF_FILENAME "sd:/3_textures_new.dff"
-#define DFF_FILENAME "sd:/5_mkdd.dff"
+#define DFF_FILENAME "sd:/dff/5_mkdd.dff"
 
 void LoadDffData(FifoData& out)
 {
@@ -802,7 +802,7 @@ int main()
 					}
 					else if (cur_frame_data.fifoData[i+1] == BPMEM_TRIGGER_EFB_COPY)
 					{
-#if 1
+#if 0
 						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
 						UPE_Copy* copy = (UPE_Copy*)&tempval;
 						if (!copy->copy_to_xfb)
@@ -813,10 +813,22 @@ int main()
 
 							// Update target address
 							wgPipe->U8 = 0x61;
-							wgPipe->U32 = (i<<24)|(/*be32toh*/(new_value)&0xffffff);
+							wgPipe->U32 = (BPMEM_TRIGGER_EFB_COPY<<24)|(/*be32toh*/(new_value)&0xffffff);
 						}
 #endif
-						// General TODO: when changing memory ranges, texture addresses need to be reset...
+					}
+				}
+				else if (cur_frame_data.fifoData[i] == GX_LOAD_CP_REG)
+				{
+					if ((cur_frame_data.fifoData[i+1] & 0xF0) == 0xA0)
+					{
+						u32 old_addr = *(u32*)&cur_frame_data.fifoData[i+2];
+						u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(old_addr));
+						wgPipe->U8 = GX_LOAD_CP_REG;
+						wgPipe->U8 = cur_frame_data.fifoData[i+1];
+						wgPipe->U32 = new_addr;
+						skip_stuff = true;
+						i += 5;
 					}
 				}
 				++next_cmd_start;
@@ -872,6 +884,7 @@ int main()
 				if ((i % 4) == 3) printf(" ");
 				if ((i % 24) == 23) printf("\n");
 			}
+			exit(0);
 		}
 
 		++cur_frame;
