@@ -727,6 +727,7 @@ int main()
 //					printf("Mem update at %x (size %x)\n", frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
 					PrepareMemoryLoad(frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
 					memcpy(GetPointer(frame.memoryUpdates[i].address), &frame.memoryUpdates[i].data[0], frame.memoryUpdates[i].data.size());
+					DCFlushRange(GetPointer(frame.memoryUpdates[i].address), frame.memoryUpdates[i].data.size());
 				}
 			}
 
@@ -773,6 +774,9 @@ int main()
 					{
 #if 0
 						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
+						u32 addr = tempval << 5; // TODO: Proper mask?
+						u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
+						u32 new_value = new_addr >> 5;
 
 						wgPipe->U8 = cur_frame_data.fifoData[i];
 						wgPipe->U32 = (BPMEM_LOADTLUT0<<24)|(/*be32toh*/(new_value)&0xffffff);
