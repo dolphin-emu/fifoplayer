@@ -292,7 +292,7 @@ struct FifoFrameData
 };
 
 #include "BPMemory.h"
-#define ENABLE_CONSOLE 1
+#define ENABLE_CONSOLE 0
 struct FifoData
 {
 	std::vector<FifoFrameData> frames;
@@ -321,12 +321,14 @@ struct FifoData
 
 			u32 new_value = bpmem[i];
 
-			// Patch texture addresses - TODO: Should be done for other textures, too ;)
-			if (i == 0x94)
+			// Patch texture addresses
+			if ((i >= BPMEM_TX_SETIMAGE3 && i < BPMEM_TX_SETIMAGE3+4) ||
+				(i >= BPMEM_TX_SETIMAGE3_4 && i < BPMEM_TX_SETIMAGE3_4+4))
 			{
 				u32 tempval = le32toh(new_value);
 				TexImage3* img = (TexImage3*)&tempval;
 				u32 addr = img->image_base << 5;
+				printf("First Yo dude! %x: %x!\n", i, addr);
 				u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
 				img->image_base = new_addr >> 5;
 				new_value = h32tole(tempval);
@@ -387,6 +389,8 @@ struct FifoData
 #include "fat.h"
 #include <dirent.h>
 
+#define DFF_FILENAME "sd:/4_efbcopies_new.dff"
+
 void LoadDffData(FifoData& out)
 {
 	if(!fatInitDefault())
@@ -399,12 +403,12 @@ void LoadDffData(FifoData& out)
 	off_t fsize = 0;
 
 	struct stat st;
-	if (stat ("sd:/3_textures.dff", &st) == 0)
+	if (stat (DFF_FILENAME, &st) == 0)
 		fsize = st.st_size;
 
 	dff_data = new u8[st.st_size];
 
-	FILE* file = fopen("sd:/3_textures.dff", "r");
+	FILE* file = fopen(DFF_FILENAME, "r");
 	if (!file)
 		printf("Failed to open file!\n");
 
@@ -602,6 +606,7 @@ public:
 				m_drawingObject = false;
 
 				u32 cmd2 = ReadFifo32(data);
+
 //				printf("BP: %02x %08x\n", cmd, cmd2);
 				//BPCmd bp = FifoAnalyzer::DecodeBPCmd(cmd2, m_BpMem); // TODO
 
@@ -710,7 +715,7 @@ int main()
 				const FifoFrameData &frame = fifo_data.frames[frameNum];
 				for (unsigned int i = 0; i < frame.memoryUpdates.size(); ++i)
 				{
-					printf("Mem update at %x (size %x)\n", frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
+//					printf("Mem update at %x (size %x)\n", frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
 					PrepareMemoryLoad(frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
 					memcpy(GetPointer(frame.memoryUpdates[i].address), &frame.memoryUpdates[i].data[0], frame.memoryUpdates[i].data.size());
 				}
@@ -747,26 +752,60 @@ int main()
 					// memcpy (GetPointer(element.start_addr), element.data, element.size);
 					// break;
 			}
-			/*if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
+
+			bool skip_stuff = false;
+			static u32 efbcopy_target = 0;
+			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
 			{
 				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
 				{
-					if (cur_frame_data.fifoData[i+3] == BPMEM_TX_SETIMAGE3 ||
-						cur_frame_data.fifoData[i+1] == BPMEM_TX_SETIMAGE3 ||
-						cur_frame_data.fifoData[i+2] == BPMEM_TX_SETIMAGE3 ||
-						cur_frame_data.fifoData[i+4] == BPMEM_TX_SETIMAGE3)
+					// Patch texture addresses
+					if ((cur_frame_data.fifoData[i+1] >= BPMEM_TX_SETIMAGE3 && cur_frame_data.fifoData[i+1] < BPMEM_TX_SETIMAGE3+4) ||
+						(cur_frame_data.fifoData[i+1] >= BPMEM_TX_SETIMAGE3_4 && cur_frame_data.fifoData[i+1] < BPMEM_TX_SETIMAGE3_4+4))
 					{
-						TexImage3* img = (TexImage3*)&cur_frame_data.fifoData[i+1];
-						printf("Loading BP reg %x!\n", img->image_base);
+						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
+						TexImage3* img = (TexImage3*)&tempval;
+						u32 addr = img->image_base << 5; // TODO: Proper mask?
+						u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
+						img->image_base = new_addr >> 5;
+						u32 new_value = /*h32tobe*/(tempval);
+
+						wgPipe->U8 = cur_frame_data.fifoData[i];
+						wgPipe->U32 = (i<<24)|(/*be32toh*/(new_value)&0xffffff);
+
+						i += 4;
+						skip_stuff = true;
 					}
-					printf("Loading BP reg %x!\n", cur_frame_data.fifoData[i+3]);
+					else if (cur_frame_data.fifoData[i+1] == BPMEM_EFB_ADDR)
+					{
+						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
+						u32 addr = (tempval & 0xFFFFFF) << 5; // TODO
+						efbcopy_target = addr;
+					}
+					else if (cur_frame_data.fifoData[i+1] == BPMEM_TRIGGER_EFB_COPY)
+					{
+						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
+						UPE_Copy* copy = (UPE_Copy*)&tempval;
+						if (!copy->copy_to_xfb)
+						{
+							PrepareMemoryLoad(efbcopy_target, 256*256*4); // TODO: Size!!
+							u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(efbcopy_target));
+							u32 new_value = /*h32tobe*/((BPMEM_EFB_ADDR<<24) | (new_addr >> 5));
+
+							// Update target address
+							wgPipe->U8 = 0x61;
+							wgPipe->U32 = (i<<24)|(/*be32toh*/(new_value)&0xffffff);
+						}
+
+						// General TODO: when changing memory ranges, texture addresses need to be reset...
+					}
 				}
 				++next_cmd_start;
-			}*/
-
+			}
 
 #if ENABLE_CONSOLE!=1
-			wgPipe->U8 = cur_frame_data.fifoData[i];
+			if (!skip_stuff)
+				wgPipe->U8 = cur_frame_data.fifoData[i];
 #endif
 		}
 

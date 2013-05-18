@@ -893,18 +893,35 @@ union UPE_Copy
 	u32 Hex;
 	struct 
 	{
-		u32 clamp0				: 1; // if set clamp top
-		u32 clamp1				: 1; // if set clamp bottom
-		u32 yuv					: 1; // if set, color conversion from RGB to YUV
-		u32 target_pixel_format	: 4; // realformat is (fmt/2)+((fmt&1)*8).... for some reason the msb is the lsb (pattern: cycling right shift)
-		u32 gamma				: 2; // gamma correction.. 0 = 1.0 ; 1 = 1.7 ; 2 = 2.2 ; 3 is reserved
-		u32 half_scale			: 1; // "mipmap" filter... 0 = no filter (scale 1:1) ; 1 = box filter (scale 2:1)
-		u32 scale_invert		: 1; // if set vertical scaling is on
-		u32 clear				: 1;
-		u32 frame_to_field		: 2; // 0 progressive ; 1 is reserved ; 2 = interlaced (even lines) ; 3 = interlaced 1 (odd lines)
-		u32 copy_to_xfb			: 1;
-		u32 intensity_fmt		: 1; // if set, is an intensity format (I4,I8,IA4,IA8)
+#if BYTE_ORDER == BIG_ENDIAN
 		u32	auto_conv			: 1; // if 0 automatic color conversion by texture format and pixel type
+		u32 intensity_fmt		: 1; // if set, is an intensity format (I4,I8,IA4,IA8)
+		u32 copy_to_xfb			: 1;
+		u32 frame_to_field		: 2; // 0 progressive ; 1 is reserved ; 2 = interlaced (even lines) ; 3 = interlaced 1 (odd lines)
+		u32 clear				: 1;
+		u32 scale_invert		: 1; // if set vertical scaling is on
+		u32 half_scale			: 1; // "mipmap" filter... 0 = no filter (scale 1:1) ; 1 = box filter (scale 2:1)
+		u32 gamma				: 2; // gamma correction.. 0 = 1.0 ; 1 = 1.7 ; 2 = 2.2 ; 3 is reserved
+		u32 target_pixel_format	: 4; // realformat is (fmt/2)+((fmt&1)*8).... for some reason the msb is the lsb (pattern: cycling right shift)
+		u32 yuv					: 1; // if set, color conversion from RGB to YUV
+		u32 clamp1				: 1; // if set clamp bottom
+		u32 clamp0				: 1; // if set clamp top
+#elif BYTE_ORDER == LITTLE_ENDIAN
+		u32 clamp0              : 1; // if set clamp top
+		u32 clamp1              : 1; // if set clamp bottom
+		u32 yuv                 : 1; // if set, color conversion from RGB to YUV
+		u32 target_pixel_format : 4; // realformat is (fmt/2)+((fmt&1)*8).... for some reason the msb is the lsb (pattern: cycling right shift)
+		u32 gamma               : 2; // gamma correction.. 0 = 1.0 ; 1 = 1.7 ; 2 = 2.2 ; 3 is reserved
+		u32 half_scale          : 1; // "mipmap" filter... 0 = no filter (scale 1:1) ; 1 = box filter (scale 2:1)
+		u32 scale_invert        : 1; // if set vertical scaling is on
+		u32 clear               : 1;
+		u32 frame_to_field      : 2; // 0 progressive ; 1 is reserved ; 2 = interlaced (even lines) ; 3 = interlaced 1 (odd lines)
+		u32 copy_to_xfb         : 1;
+		u32 intensity_fmt       : 1; // if set, is an intensity format (I4,I8,IA4,IA8)
+		u32 auto_conv           : 1; // if 0 automatic color conversion by texture format and pixel type
+#else
+#error endianness undefined
+#endif
 	};
 	u32 tp_realFormat() { 
 		return target_pixel_format / 2 + (target_pixel_format & 1) * 8;
