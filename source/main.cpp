@@ -74,8 +74,11 @@ bool IntersectsMemoryRange(u32 start1, u32 size1, u32 start2, u32 size2)
 }
 
 // TODO: Needs to take care of alignment, too!
-void PrepareMemoryLoad(u32 start_addr, u32 size)
+// Returns true if memory layout changed
+bool PrepareMemoryLoad(u32 start_addr, u32 size)
 {
+	bool ret = false;
+
 	std::vector<u32> affected_elements;
 	u32 new_start_addr = start_addr;
 	u32 new_end_addr = start_addr + size - 1;
@@ -98,7 +101,7 @@ void PrepareMemoryLoad(u32 start_addr, u32 size)
 
 	// if the new memory range is inside an existing chunk, there's nothing to do
 	if (new_memchunk.size == new_size)
-		return;
+		return false;
 
 	// resize chunk to required size, move old content to it, replace old arrays with new one
 	// NOTE: can't do reserve here because not the whole memory might be covered by existing memory chunks
@@ -113,11 +116,15 @@ void PrepareMemoryLoad(u32 start_addr, u32 size)
 			aligned_buf& src = memory_map[addr];
 			memcpy(&new_memchunk.buf[addr - new_start_addr], &src.buf[0], src.size);
 			memory_map.erase(addr);
+
+			ret = true;
 		}
 		affected_elements.pop_back();
 	}
 
 	// TODO: Handle critical case where memory allocation fails!
+
+	return ret;
 }
 
 // Must have been reserved via PrepareMemoryLoad first
@@ -328,7 +335,6 @@ struct FifoData
 				u32 tempval = le32toh(new_value);
 				TexImage3* img = (TexImage3*)&tempval;
 				u32 addr = img->image_base << 5;
-				printf("First Yo dude! %x: %x!\n", i, addr);
 				u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
 				img->image_base = new_addr >> 5;
 				new_value = h32tole(tempval);
@@ -389,9 +395,10 @@ struct FifoData
 #include "fat.h"
 #include <dirent.h>
 
-//#define DFF_FILENAME "sd:/4_efbcopies_new.dff"
-//#define DFF_FILENAME "sd:/3_textures_new.dff"
+//#define DFF_FILENAME "sd:/dff/4_efbcopies_new.dff"
+//#define DFF_FILENAME "sd:/dff/3_textures_new.dff"
 #define DFF_FILENAME "sd:/dff/5_mkdd.dff"
+//#define DFF_FILENAME "sd:/dff/fog_adj.dff"
 
 void LoadDffData(FifoData& out)
 {
@@ -710,7 +717,7 @@ int main()
 	{
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
-		if (cur_frame == 0)
+		if (cur_frame == 0) // TODO: Check for first_frame instead and apply previous state changes
 		{
 			for (unsigned int frameNum = 0; frameNum < fifo_data.frames.size(); ++frameNum)
 			{
@@ -729,34 +736,9 @@ int main()
 		std::vector<u32>::iterator next_cmd_start = cur_analyzed_frame.cmd_starts.begin();
 		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
 		{
-			// switch (element.type)
-			{
-				// case LOAD_REG:
-					// if (is_bp_reg)
-					{
-						// if (teximage3)
-						{
-							// TODO: Decode addr
-							// GetPointer(addr);
-							// TODO: Encode addr
-						}
-						// if (trigger_efbcopy)
-						{
-							// PrepareMemoryLoad(dest_addr, dest_size);
-							// TODO: Decode addr
-							// GetPointer(addr);
-							// TODO: Encode addr
-						}
-					}
-					// break;
-				// case LOAD_MEM:
-					// PrepareMemoryLoad(start_addr, size);
-					// memcpy (GetPointer(element.start_addr), element.data, element.size);
-					// break;
-			}
-
 			bool skip_stuff = false;
 			static u32 efbcopy_target = 0;
+			static u32 tex_addr[8] = {0};
 			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
 			{
 				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
@@ -777,6 +759,11 @@ int main()
 
 						i += 4;
 						skip_stuff = true;
+
+						if (cur_frame_data.fifoData[i+1] >= BPMEM_TX_SETIMAGE3 && cur_frame_data.fifoData[i+1] < BPMEM_TX_SETIMAGE3+4)
+							tex_addr[cur_frame_data.fifoData[i+1] - BPMEM_TX_SETIMAGE3] = new_addr;
+						else
+							tex_addr[4 + cur_frame_data.fifoData[i+1] - BPMEM_TX_SETIMAGE3_4] = new_addr;
 					}
 					else if (cur_frame_data.fifoData[i+1] == BPMEM_PRELOAD_ADDR)
 					{
@@ -788,7 +775,7 @@ int main()
 						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
 
 						wgPipe->U8 = cur_frame_data.fifoData[i];
-						wgPipe->U32 = (i<<24)|(/*be32toh*/(new_value)&0xffffff);
+						wgPipe->U32 = (BPMEM_LOADTLUT0<<24)|(/*be32toh*/(new_value)&0xffffff);
 
 						i += 4;
 						skip_stuff = true;
@@ -802,20 +789,31 @@ int main()
 					}
 					else if (cur_frame_data.fifoData[i+1] == BPMEM_TRIGGER_EFB_COPY)
 					{
-#if 0
 						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
 						UPE_Copy* copy = (UPE_Copy*)&tempval;
 						if (!copy->copy_to_xfb)
 						{
-							PrepareMemoryLoad(efbcopy_target, 256*256*4); // TODO: Size!!
+							bool update_textures = PrepareMemoryLoad(efbcopy_target, 256*256*4); // TODO: Size!!
 							u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(efbcopy_target));
 							u32 new_value = /*h32tobe*/((BPMEM_EFB_ADDR<<24) | (new_addr >> 5));
 
 							// Update target address
 							wgPipe->U8 = 0x61;
-							wgPipe->U32 = (BPMEM_TRIGGER_EFB_COPY<<24)|(/*be32toh*/(new_value)&0xffffff);
+							wgPipe->U32 = (BPMEM_EFB_ADDR<<24)|(/*be32toh*/(new_value)&0xffffff);
+
+							// Gotta fix texture offsets if memory map layout changed
+							if (update_textures)
+							{
+								for (int k = 0; k < 8; ++k)
+								{
+									u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(tex_addr[k]));
+									u32 new_value = /*h32tobe*/(new_addr>>5);
+
+									wgPipe->U8 = 0x61;
+									wgPipe->U32 = (((k < 4) ? BPMEM_TX_SETIMAGE3+k : BPMEM_TX_SETIMAGE3_4+k)<<24)|(/*be32toh*/(new_value)&0xffffff);
+								}
+							}
 						}
-#endif
 					}
 				}
 				else if (cur_frame_data.fifoData[i] == GX_LOAD_CP_REG)
@@ -833,7 +831,6 @@ int main()
 				}
 				++next_cmd_start;
 			}
-
 #if ENABLE_CONSOLE!=1
 			if (!skip_stuff)
 				wgPipe->U8 = cur_frame_data.fifoData[i];
