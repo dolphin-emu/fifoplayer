@@ -300,6 +300,9 @@ struct FifoFrameData
 
 #include "BPMemory.h"
 #define ENABLE_CONSOLE 0
+
+static u32 tex_addr[8] = {0};
+
 struct FifoData
 {
 	std::vector<FifoFrameData> frames;
@@ -338,6 +341,11 @@ struct FifoData
 				u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
 				img->image_base = new_addr >> 5;
 				new_value = h32tole(tempval);
+
+				if (i >= BPMEM_TX_SETIMAGE3 && i < BPMEM_TX_SETIMAGE3+4)
+					tex_addr[i - BPMEM_TX_SETIMAGE3] = new_addr;
+				else
+					tex_addr[4 + i - BPMEM_TX_SETIMAGE3_4] = new_addr;
 			}
 
 #if ENABLE_CONSOLE!=1
@@ -397,7 +405,8 @@ struct FifoData
 
 //#define DFF_FILENAME "sd:/dff/4_efbcopies_new.dff"
 //#define DFF_FILENAME "sd:/dff/3_textures_new.dff"
-#define DFF_FILENAME "sd:/dff/5_mkdd.dff"
+//#define DFF_FILENAME "sd:/dff/5_mkdd.dff"
+#define DFF_FILENAME "sd:/dff/smg_marioeyes.dff"
 //#define DFF_FILENAME "sd:/dff/fog_adj.dff"
 
 void LoadDffData(FifoData& out)
@@ -724,9 +733,9 @@ int main()
 				const FifoFrameData &frame = fifo_data.frames[frameNum];
 				for (unsigned int i = 0; i < frame.memoryUpdates.size(); ++i)
 				{
-//					printf("Mem update at %x (size %x)\n", frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
 					PrepareMemoryLoad(frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
-					memcpy(GetPointer(frame.memoryUpdates[i].address), &frame.memoryUpdates[i].data[0], frame.memoryUpdates[i].data.size());
+					//if (early_mem_updates)
+					//	memcpy(GetPointer(frame.memoryUpdates[i].address), &frame.memoryUpdates[i].data[0], frame.memoryUpdates[i].data.size());
 					DCFlushRange(GetPointer(frame.memoryUpdates[i].address), frame.memoryUpdates[i].data.size());
 				}
 			}
@@ -735,11 +744,24 @@ int main()
 		}
 
 		std::vector<u32>::iterator next_cmd_start = cur_analyzed_frame.cmd_starts.begin();
+
+		u32 last_pos = 0;
 		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
 		{
+			const FifoFrameData &frame = fifo_data.frames[cur_frame];
+			for (unsigned int update = 0; update < frame.memoryUpdates.size(); ++update)
+			{
+				if ((!last_pos || frame.memoryUpdates[update].fifoPosition > last_pos) && frame.memoryUpdates[update].fifoPosition <= i)
+				{
+					PrepareMemoryLoad(frame.memoryUpdates[update].address, frame.memoryUpdates[update].data.size());
+					memcpy(GetPointer(frame.memoryUpdates[update].address), &frame.memoryUpdates[update].data[0], frame.memoryUpdates[update].data.size());
+					DCFlushRange(GetPointer(frame.memoryUpdates[update].address), frame.memoryUpdates[update].data.size());
+				}
+			}
+			last_pos = i;
+
 			bool skip_stuff = false;
 			static u32 efbcopy_target = 0;
-			static u32 tex_addr[8] = {0};
 			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
 			{
 				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
@@ -756,7 +778,7 @@ int main()
 						u32 new_value = /*h32tobe*/(tempval);
 
 						wgPipe->U8 = cur_frame_data.fifoData[i];
-						wgPipe->U32 = (cur_frame_data.fifoData[i+1]<<24)|(/*be32toh*/(new_value)&0xffffff);
+						wgPipe->U32 = ((u32)cur_frame_data.fifoData[i+1]<<24)|(/*be32toh*/(new_value)&0xffffff);
 
 						i += 4;
 						skip_stuff = true;
@@ -797,7 +819,7 @@ int main()
 						UPE_Copy* copy = (UPE_Copy*)&tempval;
 						if (!copy->copy_to_xfb)
 						{
-							bool update_textures = PrepareMemoryLoad(efbcopy_target, 256*256*4); // TODO: Size!!
+							bool update_textures = PrepareMemoryLoad(efbcopy_target, 640*480*4); // TODO: Size!!
 							u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(efbcopy_target));
 							u32 new_value = /*h32tobe*/((BPMEM_EFB_ADDR<<24) | (new_addr >> 5));
 
@@ -814,7 +836,8 @@ int main()
 									u32 new_value = /*h32tobe*/(new_addr>>5);
 
 									wgPipe->U8 = 0x61;
-									wgPipe->U32 = (((k < 4) ? BPMEM_TX_SETIMAGE3+k : BPMEM_TX_SETIMAGE3_4+k)<<24)|(/*be32toh*/(new_value)&0xffffff);
+									u32 reg = (k < 4) ? (BPMEM_TX_SETIMAGE3+k) : (BPMEM_TX_SETIMAGE3_4+(k-4));
+									wgPipe->U32 = (reg<<24)|(/*be32toh*/(new_value)&0xffffff);
 								}
 							}
 						}
