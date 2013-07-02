@@ -894,6 +894,7 @@ union UPE_Copy
 	struct
 	{
 #if BYTE_ORDER == BIG_ENDIAN
+		u32 unused : 15;
 		u32	auto_conv			: 1; // if 0 automatic color conversion by texture format and pixel type
 		u32 intensity_fmt		: 1; // if set, is an intensity format (I4,I8,IA4,IA8)
 		u32 copy_to_xfb			: 1;
@@ -919,6 +920,7 @@ union UPE_Copy
 		u32 copy_to_xfb         : 1;
 		u32 intensity_fmt       : 1; // if set, is an intensity format (I4,I8,IA4,IA8)
 		u32 auto_conv           : 1; // if 0 automatic color conversion by texture format and pixel type
+		u32 unused : 15;
 #else
 #error endianness undefined
 #endif
@@ -934,11 +936,13 @@ union BPU_PreloadTileInfo
 	struct
 	{
 #if BYTE_ORDER == BIG_ENDIAN
+		u32 unused : 15;
 		u32 type : 2;
 		u32 count : 15;
 #elif BYTE_ORDER == LITTLE_ENDIAN
 		u32 count : 15;
 		u32 type : 2;
+		u32 unused : 15;
 #else
 #error endianness undefined
 #endif
