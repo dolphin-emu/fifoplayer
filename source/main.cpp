@@ -16,10 +16,11 @@ typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint8_t u8;
 
+#define DEF_ALIGN 32
 class aligned_buf
 {
 public:
-	aligned_buf() : buf(NULL), size(0), alignment(32) {}
+	aligned_buf() : buf(NULL), size(0), alignment(DEF_ALIGN) {}
 	aligned_buf(int alignment) : buf(NULL), size(0), alignment(alignment) {}
 	~aligned_buf()
 	{
@@ -78,6 +79,11 @@ bool IntersectsMemoryRange(u32 start1, u32 size1, u32 start2, u32 size2)
 bool PrepareMemoryLoad(u32 start_addr, u32 size)
 {
 	bool ret = false;
+
+	// Make sure alignment of data inside the memory block is preserved
+	u32 off = start_addr % DEF_ALIGN;
+	start_addr = start_addr - off;
+	size += off;
 
 	std::vector<u32> affected_elements;
 	u32 new_start_addr = start_addr;
@@ -777,7 +783,7 @@ int main()
 						img->image_base = new_addr >> 5;
 						u32 new_value = /*h32tobe*/(tempval);
 
-						wgPipe->U8 = cur_frame_data.fifoData[i];
+						wgPipe->U8 = 0x61;
 						wgPipe->U32 = ((u32)cur_frame_data.fifoData[i+1]<<24)|(/*be32toh*/(new_value)&0xffffff);
 
 						i += 4;
