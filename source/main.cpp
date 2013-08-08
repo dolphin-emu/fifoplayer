@@ -412,7 +412,10 @@ struct FifoData
 //#define DFF_FILENAME "sd:/dff/4_efbcopies_new.dff"
 //#define DFF_FILENAME "sd:/dff/3_textures_new.dff"
 //#define DFF_FILENAME "sd:/dff/5_mkdd.dff"
-#define DFF_FILENAME "sd:/dff/smg_marioeyes.dff"
+//#define DFF_FILENAME "sd:/dff/smg_marioeyes.dff"
+//#define DFF_FILENAME "sd:/dff/tmnt_fog.dff"
+#define DFF_FILENAME "sd:/dff/ZeldaWW.dff"
+//#define DFF_FILENAME "sd:/dff/simpletexture.dff"
 //#define DFF_FILENAME "sd:/dff/fog_adj.dff"
 
 void LoadDffData(FifoData& out)
@@ -761,7 +764,10 @@ int main()
 				{
 					PrepareMemoryLoad(frame.memoryUpdates[update].address, frame.memoryUpdates[update].data.size());
 					memcpy(GetPointer(frame.memoryUpdates[update].address), &frame.memoryUpdates[update].data[0], frame.memoryUpdates[update].data.size());
-					DCFlushRange(GetPointer(frame.memoryUpdates[update].address), frame.memoryUpdates[update].data.size());
+
+					// DCFlushRange expects aligned addresses
+					u32 off = frame.memoryUpdates[update].address % DEF_ALIGN;
+					DCFlushRange(GetPointer(frame.memoryUpdates[update].address - off), frame.memoryUpdates[update].data.size()+off);
 				}
 			}
 			last_pos = i;
@@ -871,8 +877,19 @@ int main()
 		}
 
 #if ENABLE_CONSOLE!=1
-		// finish frame...
-		GX_CopyDisp(frameBuffer[fb],GX_TRUE);
+		// finish frame
+		// Note that GX_CopyDisp(frameBuffer[fb],GX_TRUE) uses an internal state
+		// which is out of sync with the dff_data, so we're manually writing
+		// to the EFB copy registers instead.
+		wgPipe->U8 = GX_LOAD_BP_REG;
+		wgPipe->U32 = (BPMEM_EFB_ADDR << 24) | ((MEM_VIRTUAL_TO_PHYSICAL(frameBuffer[fb]) >> 5) & 0xFFFFFF);
+
+		UPE_Copy copy;
+		copy.Hex = 0;
+		copy.clear = 1;
+		copy.copy_to_xfb = 1;
+		wgPipe->U8 = GX_LOAD_BP_REG;
+		wgPipe->U32 = (BPMEM_TRIGGER_EFB_COPY << 24) | copy.Hex;
 
 		VIDEO_SetNextFramebuffer(frameBuffer[fb]);
 		if (first_frame)
