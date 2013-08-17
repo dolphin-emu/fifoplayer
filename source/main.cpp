@@ -11,6 +11,9 @@
 #include <gccore.h>
 #include <wiiuse/wpad.h>
 #include <unistd.h>
+#include <fat.h>
+#include <dirent.h>
+
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -406,15 +409,13 @@ struct FifoData
 	}
 };
 
-#include "fat.h"
-#include <dirent.h>
-
 //#define DFF_FILENAME "sd:/dff/4_efbcopies_new.dff"
 //#define DFF_FILENAME "sd:/dff/3_textures_new.dff"
 //#define DFF_FILENAME "sd:/dff/5_mkdd.dff"
 //#define DFF_FILENAME "sd:/dff/smg_marioeyes.dff"
+#define DFF_FILENAME "sd:/dff/test.dff"
 //#define DFF_FILENAME "sd:/dff/tmnt_fog.dff"
-#define DFF_FILENAME "sd:/dff/ZeldaWW.dff"
+//#define DFF_FILENAME "sd:/dff/rs2_intro.dff"
 //#define DFF_FILENAME "sd:/dff/simpletexture.dff"
 //#define DFF_FILENAME "sd:/dff/fog_adj.dff"
 
@@ -508,6 +509,8 @@ void LoadDffData(FifoData& out)
 	out.xfregs.insert(out.xfregs.begin(), xf_regs_ptr, xf_regs_ptr + xf_regs_size);
 
 	delete[] dff_data;
+
+	fclose(file);
 }
 
 struct AnalyzedFrameInfo
@@ -806,7 +809,7 @@ int main()
 					}
 					else if (cur_frame_data.fifoData[i+1] == BPMEM_LOADTLUT0)
 					{
-#if 0
+#if 1
 						u32 tempval = /*be32toh*/(*(u32*)&cur_frame_data.fifoData[i+1]);
 						u32 addr = tempval << 5; // TODO: Proper mask?
 						u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
