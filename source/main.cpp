@@ -253,6 +253,13 @@ union DffFrameInfo
 
 struct DffMemoryUpdate
 {
+	enum Type {
+		TEXTURE_MAP = 0x01,
+		XF_DATA = 0x02,
+		VERTEX_STREAM = 0x04,
+		TMEM = 0x08,
+	};
+
 	u32 fifoPosition;
 	u32 address;
 	u64 dataOffset;
@@ -282,21 +289,6 @@ struct DffMemoryUpdate
 
 
 
-struct MemoryUpdate
-{
-	enum Type {
-		TEXTURE_MAP = 0x01,
-		XF_DATA = 0x02,
-		VERTEX_STREAM = 0x04,
-		TMEM = 0x08,
-	};
-
-	u32 fifoPosition;
-	u32 address;
-	std::vector<u8> data;
-	Type type;
-};
-
 struct FifoFrameData
 {
 	std::vector<u8> fifoData;
@@ -304,7 +296,7 @@ struct FifoFrameData
 	u32 fifoEnd;
 
 	// Sorted by position - TODO: Make this a map instead?
-	std::vector<MemoryUpdate> memoryUpdates;
+	std::vector<DffMemoryUpdate> memoryUpdates;
 };
 
 #include "BPMemory.h"
@@ -314,6 +306,8 @@ static u32 tex_addr[8] = {0};
 
 struct FifoData
 {
+	FILE* file;
+
 	std::vector<FifoFrameData> frames;
 
 	std::vector<u32> bpmem;
@@ -426,12 +420,12 @@ void LoadDffData(FifoData& out)
 		printf("fatInitDefault failed!\n");
 	}
 
-	FILE* file = fopen(DFF_FILENAME, "r");
-	if (!file)
+	out.file = fopen(DFF_FILENAME, "r");
+	if (!out.file)
 		printf("Failed to open file!\n");
 
 	DffFileHeader header;
-	size_t numread = fread(&header, sizeof(DffFileHeader), 1, file);
+	size_t numread = fread(&header, sizeof(DffFileHeader), 1, out.file);
 	header.FixEndianness();
 
 	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 1)
@@ -445,60 +439,51 @@ void LoadDffData(FifoData& out)
 		u64 frameOffset = header.frameListOffset + (i * sizeof(DffFrameInfo));
 		DffFrameInfo srcFrame;
 
-		fseek(file, frameOffset, SEEK_SET);
-		fread(&srcFrame, sizeof(DffFrameInfo), 1, file);
+		fseek(out.file, frameOffset, SEEK_SET);
+		fread(&srcFrame, sizeof(DffFrameInfo), 1, out.file);
 		srcFrame.FixEndianness();
 
 		out.frames.push_back(FifoFrameData());
 		FifoFrameData& dstFrame = out.frames[i];
 		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
 		dstFrame.fifoData.resize(srcFrame.fifoDataSize-5);
-		fseek(file, srcFrame.fifoDataOffset, SEEK_SET);
-		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize-5, 1, file);
+		fseek(out.file, srcFrame.fifoDataOffset, SEEK_SET);
+		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize-5, 1, out.file);
 
 		u64 memoryUpdatesOffset;
 		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
 		for (unsigned int i = 0;i < srcFrame.numMemoryUpdates; ++i)
 		{
 			u64 updateOffset = srcFrame.memoryUpdatesOffset + (i * sizeof(DffMemoryUpdate));
-			DffMemoryUpdate srcUpdate;
-			fseek(file, updateOffset, SEEK_SET);
-			fread(&srcUpdate, sizeof(DffMemoryUpdate), 1, file);
+			DffMemoryUpdate& srcUpdate = dstFrame.memoryUpdates[i];
+			fseek(out.file, updateOffset, SEEK_SET);
+			fread(&srcUpdate, sizeof(DffMemoryUpdate), 1, out.file);
 			srcUpdate.FixEndianness();
-
-			MemoryUpdate& dstUpdate = dstFrame.memoryUpdates[i];
-			dstUpdate.address = srcUpdate.address;
-			dstUpdate.fifoPosition = srcUpdate.fifoPosition;
-			dstUpdate.data.resize(srcUpdate.dataSize);
-			dstUpdate.type = (MemoryUpdate::Type) srcUpdate.type;
-
-			fseek(file, srcUpdate.dataOffset, SEEK_SET);
-			fread(&dstUpdate.data[0], srcUpdate.dataSize, 1, file);
 		}
 	}
 
 	// Save initial state
 	u32 bp_size = header.bpMemSize;
 	out.bpmem.resize(bp_size);
-	fseek(file, header.bpMemOffset, SEEK_SET);
-	fread(&out.bpmem[0], bp_size*4, 1, file);
+	fseek(out.file, header.bpMemOffset, SEEK_SET);
+	fread(&out.bpmem[0], bp_size*4, 1, out.file);
 
 	u32 cp_size = header.cpMemSize;
 	out.cpmem.resize(cp_size);
-	fseek(file, header.cpMemOffset, SEEK_SET);
-	fread(&out.cpmem[0], cp_size*4, 1, file);
+	fseek(out.file, header.cpMemOffset, SEEK_SET);
+	fread(&out.cpmem[0], cp_size*4, 1, out.file);
 
 	u32 xf_size = header.xfMemSize;
 	out.xfmem.resize(xf_size);
-	fseek(file, header.xfMemOffset, SEEK_SET);
-	fread(&out.xfmem[0], xf_size*4, 1, file);
+	fseek(out.file, header.xfMemOffset, SEEK_SET);
+	fread(&out.xfmem[0], xf_size*4, 1, out.file);
 
 	u32 xf_regs_size = header.xfRegsSize;
 	out.xfregs.resize(xf_regs_size);
-	fseek(file, header.xfRegsOffset, SEEK_SET);
-	fread(&out.xfregs[0], xf_regs_size*4, 1, file);
+	fseek(out.file, header.xfRegsOffset, SEEK_SET);
+	fread(&out.xfregs[0], xf_regs_size*4, 1, out.file);
 
-	fclose(file);
+	// TODO: Should DCFlushRange here?
 }
 
 struct AnalyzedFrameInfo
@@ -713,10 +698,14 @@ int main()
 
 	FifoData fifo_data;
 	LoadDffData(fifo_data);
+	printf("Loaded dff data\n");
 
 	FifoDataAnalyzer analyzer;
 	std::vector<AnalyzedFrameInfo> analyzed_frames;
 	analyzer.AnalyzeFrames(fifo_data, analyzed_frames);
+	printf("Analyzed dff data\n");
+
+	CPMemory cpmem; // TODO: Should be removed...
 
 	bool processing = true;
 	int first_frame = 0;
@@ -733,10 +722,10 @@ int main()
 				const FifoFrameData &frame = fifo_data.frames[frameNum];
 				for (unsigned int i = 0; i < frame.memoryUpdates.size(); ++i)
 				{
-					PrepareMemoryLoad(frame.memoryUpdates[i].address, frame.memoryUpdates[i].data.size());
+					PrepareMemoryLoad(frame.memoryUpdates[i].address, frame.memoryUpdates[i].dataSize);
 					//if (early_mem_updates)
 					//	memcpy(GetPointer(frame.memoryUpdates[i].address), &frame.memoryUpdates[i].data[0], frame.memoryUpdates[i].data.size());
-					DCFlushRange(GetPointer(frame.memoryUpdates[i].address), frame.memoryUpdates[i].data.size());
+					//DCFlushRange(GetPointer(frame.memoryUpdates[i].address), frame.memoryUpdates[i].dataSize);
 				}
 			}
 
@@ -748,17 +737,21 @@ int main()
 		u32 last_pos = 0;
 		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
 		{
+			if ((i % 100)==0)
+				printf("Processing fifo command %d of %d!\n", i, cur_frame_data.fifoData.size());
+
 			const FifoFrameData &frame = fifo_data.frames[cur_frame];
 			for (unsigned int update = 0; update < frame.memoryUpdates.size(); ++update)
 			{
 				if ((!last_pos || frame.memoryUpdates[update].fifoPosition > last_pos) && frame.memoryUpdates[update].fifoPosition <= i)
 				{
-					PrepareMemoryLoad(frame.memoryUpdates[update].address, frame.memoryUpdates[update].data.size());
-					memcpy(GetPointer(frame.memoryUpdates[update].address), &frame.memoryUpdates[update].data[0], frame.memoryUpdates[update].data.size());
+//					PrepareMemoryLoad(frame.memoryUpdates[update].address, frame.memoryUpdates[update].dataSize);
+					fseek(fifo_data.file, frame.memoryUpdates[update].dataOffset, SEEK_SET);
+					fread(GetPointer(frame.memoryUpdates[update].address), frame.memoryUpdates[update].dataSize, 1, fifo_data.file);
 
 					// DCFlushRange expects aligned addresses
 					u32 off = frame.memoryUpdates[update].address % DEF_ALIGN;
-					DCFlushRange(GetPointer(frame.memoryUpdates[update].address - off), frame.memoryUpdates[update].data.size()+off);
+					DCFlushRange(GetPointer(frame.memoryUpdates[update].address - off), frame.memoryUpdates[update].dataSize+off);
 				}
 			}
 			last_pos = i;
@@ -845,12 +838,24 @@ int main()
 							}
 						}
 					}
+					else
+					{
+						wgPipe->U8 = 0x61;
+						wgPipe->U8 = cur_frame_data.fifoData[i+1];
+						wgPipe->U8 = cur_frame_data.fifoData[i+2];
+						wgPipe->U8 = cur_frame_data.fifoData[i+3];
+						wgPipe->U8 = cur_frame_data.fifoData[i+4];
+
+						i += 4;
+						skip_stuff = true;
+					}
 				}
 				else if (cur_frame_data.fifoData[i] == GX_LOAD_CP_REG)
 				{
-					if ((cur_frame_data.fifoData[i+1] & 0xF0) == 0xA0)
+					u8 cmd2 = cur_frame_data.fifoData[i+1];
+					if ((cmd2 & 0xF0) == 0xA0)
 					{
-						u32 old_addr = *(u32*)&cur_frame_data.fifoData[i+2];
+						u32 old_addr = *(u32*)&cur_frame_data.fifoData[i+2]; // TODO: Endiannes (only works on Wii)
 						u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(old_addr));
 						wgPipe->U8 = GX_LOAD_CP_REG;
 						wgPipe->U8 = cur_frame_data.fifoData[i+1];
@@ -858,6 +863,53 @@ int main()
 						skip_stuff = true;
 						i += 5;
 					}
+
+					u32 value = *(u32*)&cur_frame_data.fifoData[i+2]; // TODO: Endianness (only works on Wii)
+					LoadCPReg(cmd2, value, cpmem);
+				}
+				else if (cur_frame_data.fifoData[i] == GX_LOAD_XF_REG)
+				{
+					// Load data directly instead of going through the loop again for no reason
+
+					u32 cmd2 = *(u32*)&cur_frame_data.fifoData[i+1]; // TODO: Endianness (only works on Wii)
+					u8 streamSize = ((cmd2 >> 16) & 15) + 1;
+
+					wgPipe->U8 = cur_frame_data.fifoData[i];
+					wgPipe->U32 = cmd2;
+					for (int byte = 0; byte < streamSize * 4; ++byte)
+						wgPipe->U8 = cur_frame_data.fifoData[i+5+byte];
+
+					i += streamSize * 4 + 4;
+					skip_stuff = true;
+				}
+				else if(cur_frame_data.fifoData[i] == GX_LOAD_INDX_A ||
+						cur_frame_data.fifoData[i] == GX_LOAD_INDX_B ||
+						cur_frame_data.fifoData[i] == GX_LOAD_INDX_C ||
+						cur_frame_data.fifoData[i] == GX_LOAD_INDX_D)
+				{
+					wgPipe->U8 = cur_frame_data.fifoData[i];
+					wgPipe->U8 = cur_frame_data.fifoData[i+1];
+					wgPipe->U8 = cur_frame_data.fifoData[i+2];
+					wgPipe->U8 = cur_frame_data.fifoData[i+3];
+					wgPipe->U8 = cur_frame_data.fifoData[i+4];
+
+					i += 4;
+					skip_stuff = true;
+				}
+				else if (cur_frame_data.fifoData[i] & 0x80)
+				{
+					u32 vtxAttrGroup = cur_frame_data.fifoData[i] & GX_VAT_MASK;
+					int vertexSize = CalculateVertexSize(vtxAttrGroup, cpmem);
+
+					u16 streamSize = *(u16*)&cur_frame_data.fifoData[i+1]; // TODO: Endianness (only works on Wii)
+
+					wgPipe->U8 = cur_frame_data.fifoData[i];
+					wgPipe->U16 = streamSize;
+					for (int byte = 0; byte < streamSize * vertexSize; ++byte)
+						wgPipe->U8 = cur_frame_data.fifoData[i+3+byte];
+
+					i += 2 + streamSize * vertexSize;
+					skip_stuff = true;
 				}
 				++next_cmd_start;
 			}
@@ -866,6 +918,8 @@ int main()
 				wgPipe->U8 = cur_frame_data.fifoData[i];
 #endif
 		}
+
+		// TODO: Flush WGPipe
 
 #if ENABLE_CONSOLE!=1
 		// finish frame
@@ -922,12 +976,15 @@ int main()
 				if ((i % 4) == 3) printf(" ");
 				if ((i % 24) == 23) printf("\n");
 			}
+			fclose(fifo_data.file);
 			exit(0);
 		}
 
 		++cur_frame;
 		cur_frame = first_frame + ((cur_frame-first_frame) % (last_frame-first_frame+1));
 	}
+
+	fclose(fifo_data.file);
 
 	return 0;
 }
