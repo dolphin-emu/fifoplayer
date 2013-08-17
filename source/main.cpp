@@ -426,25 +426,12 @@ void LoadDffData(FifoData& out)
 		printf("fatInitDefault failed!\n");
 	}
 
-	u8* dff_data = NULL;
-
-	off_t fsize = 0;
-
-	struct stat st;
-	if (stat (DFF_FILENAME, &st) == 0)
-		fsize = st.st_size;
-
-	dff_data = new u8[st.st_size];
-
 	FILE* file = fopen(DFF_FILENAME, "r");
 	if (!file)
 		printf("Failed to open file!\n");
 
-	size_t numread = fread(dff_data, st.st_size, 1, file);
-	printf("Read %llx bytes\n", numread * st.st_size);
-
 	DffFileHeader header;
-	memcpy(&header,  &dff_data[0], sizeof(DffFileHeader));
+	size_t numread = fread(&header, sizeof(DffFileHeader), 1, file);
 	header.FixEndianness();
 
 	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 1)
@@ -457,16 +444,17 @@ void LoadDffData(FifoData& out)
 	{
 		u64 frameOffset = header.frameListOffset + (i * sizeof(DffFrameInfo));
 		DffFrameInfo srcFrame;
-		memcpy(&srcFrame, &dff_data[frameOffset], sizeof(DffFrameInfo));
-		srcFrame.FixEndianness();
 
-//		printf("Frame %d got %d bytes of data (Start: 0x%#x, End: 0x%#x)\n", i, srcFrame.fifoDataSize, srcFrame.fifoStart, srcFrame.fifoEnd);
+		fseek(file, frameOffset, SEEK_SET);
+		fread(&srcFrame, sizeof(DffFrameInfo), 1, file);
+		srcFrame.FixEndianness();
 
 		out.frames.push_back(FifoFrameData());
 		FifoFrameData& dstFrame = out.frames[i];
 		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
-		dstFrame.fifoData.reserve(srcFrame.fifoDataSize-5);
-		dstFrame.fifoData.insert(dstFrame.fifoData.begin(), &dff_data[srcFrame.fifoDataOffset], &dff_data[srcFrame.fifoDataOffset]+srcFrame.fifoDataSize-5);
+		dstFrame.fifoData.resize(srcFrame.fifoDataSize-5);
+		fseek(file, srcFrame.fifoDataOffset, SEEK_SET);
+		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize-5, 1, file);
 
 		u64 memoryUpdatesOffset;
 		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
@@ -474,7 +462,8 @@ void LoadDffData(FifoData& out)
 		{
 			u64 updateOffset = srcFrame.memoryUpdatesOffset + (i * sizeof(DffMemoryUpdate));
 			DffMemoryUpdate srcUpdate;
-			memcpy(&srcUpdate, &dff_data[updateOffset], sizeof(DffMemoryUpdate));
+			fseek(file, updateOffset, SEEK_SET);
+			fread(&srcUpdate, sizeof(DffMemoryUpdate), 1, file);
 			srcUpdate.FixEndianness();
 
 			MemoryUpdate& dstUpdate = dstFrame.memoryUpdates[i];
@@ -483,32 +472,31 @@ void LoadDffData(FifoData& out)
 			dstUpdate.data.resize(srcUpdate.dataSize);
 			dstUpdate.type = (MemoryUpdate::Type) srcUpdate.type;
 
-			memcpy(&dstUpdate.data[0], &dff_data[srcUpdate.dataOffset], srcUpdate.dataSize);
+			fseek(file, srcUpdate.dataOffset, SEEK_SET);
+			fread(&dstUpdate.data[0], srcUpdate.dataSize, 1, file);
 		}
 	}
 
 	// Save initial state
 	u32 bp_size = header.bpMemSize;
-	u32* bp_ptr = (u32*)&dff_data[header.bpMemOffset];
-	out.bpmem.reserve(bp_size);
-	out.bpmem.insert(out.bpmem.begin(), bp_ptr, bp_ptr + bp_size);
+	out.bpmem.resize(bp_size);
+	fseek(file, header.bpMemOffset, SEEK_SET);
+	fread(&out.bpmem[0], bp_size*4, 1, file);
 
 	u32 cp_size = header.cpMemSize;
-	u32* cp_ptr = (u32*)&dff_data[header.cpMemOffset];
-	out.cpmem.reserve(cp_size);
-	out.cpmem.insert(out.cpmem.begin(), cp_ptr, cp_ptr + cp_size);
+	out.cpmem.resize(cp_size);
+	fseek(file, header.cpMemOffset, SEEK_SET);
+	fread(&out.cpmem[0], cp_size*4, 1, file);
 
 	u32 xf_size = header.xfMemSize;
-	u32* xf_ptr = (u32*)&dff_data[header.xfMemOffset];
-	out.xfmem.reserve(xf_size);
-	out.xfmem.insert(out.xfmem.begin(), xf_ptr, xf_ptr + xf_size);
+	out.xfmem.resize(xf_size);
+	fseek(file, header.xfMemOffset, SEEK_SET);
+	fread(&out.xfmem[0], xf_size*4, 1, file);
 
 	u32 xf_regs_size = header.xfRegsSize;
-	u32* xf_regs_ptr = (u32*)&dff_data[header.xfRegsOffset];
-	out.xfregs.reserve(xf_regs_size);
-	out.xfregs.insert(out.xfregs.begin(), xf_regs_ptr, xf_regs_ptr + xf_regs_size);
-
-	delete[] dff_data;
+	out.xfregs.resize(xf_regs_size);
+	fseek(file, header.xfRegsOffset, SEEK_SET);
+	fread(&out.xfregs[0], xf_regs_size*4, 1, file);
 
 	fclose(file);
 }
