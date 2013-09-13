@@ -28,6 +28,35 @@
 const int version = 0;
 const uint32_t handshake = 0x6fe62ac7;
 
+void WriteHandshake(int socket)
+{
+	char data[5];
+	data[0] = CMD_HANDSHAKE;
+	*(uint32_t*)&data[1] = htonl(handshake);
+	send(socket, data, sizeof(data), 0);
+}
+
+DffClient::DffClient(QObject* parent) : QTcpSocket(parent)
+{
+	connect(this, SIGNAL(connected()), this, SLOT(OnConnected()));
+}
+
+void DffClient::Connect(const QString & hostName)
+{
+	connectToHost("127.0.0.1", DFF_CONN_PORT); // TODO: Configurable IP address
+	if (!waitForConnected(1000))
+	{
+		qDebug() << "Client couldn't connect";
+	}
+}
+
+void DffClient::OnConnected()
+{
+	qDebug() << "Client connected successfully";
+
+	WriteHandshake(socketDescriptor());
+}
+
 int ReadHandshake(int socket)
 {
 	char data[5];
@@ -40,25 +69,23 @@ int ReadHandshake(int socket)
 	return RET_SUCCESS;
 }
 
-
-// /dev/net/ip/top
-DummyClient::DummyClient(QObject* parent) : QTcpSocket(parent)
+// Dummy code used for testing
+// This should actually be running on the Wii
+// inside native fifo player and using /dev/net/ip/top
+DummyServer::DummyServer(QObject* parent) : QTcpServer(parent)
 {
-	connect(this, SIGNAL(connected()), this, SLOT(OnConnected()));
+	connect(this, SIGNAL(newConnection()), this, SLOT(OnNewConnection()));
 }
 
-void DummyClient::Connect(const QString & hostName)
+void DummyServer::StartListen()
 {
-	connectToHost("127.0.0.1", DFF_CONN_PORT); // TODO: Configurable IP address
-	if (!waitForConnected(1000))
-	{
-		qDebug() << "Client couldn't connect";
-	}
+	listen(QHostAddress::Any, DFF_CONN_PORT);
 }
 
-void DummyClient::OnConnected()
+void DummyServer::OnNewConnection()
 {
-	qDebug() << "Client connected successfully";
+	qDebug() << "Server got a new connection";
+	QTcpSocket* socket = nextPendingConnection();
 
 	// NOTE: We should periodically check for incoming data instead of spinlocking here...
 	// However, this seems buggy. If I enable the code, nothing works anymore.
@@ -67,13 +94,11 @@ void DummyClient::OnConnected()
 	connect(timer, SIGNAL(timeout()), this, SLOT(CheckIncomingData()));
 	timer->setSingleShot(false);
 	timer->start(1000);*/
-	CheckIncomingData();
+	CheckIncomingData(socket->socketDescriptor());
 }
 
-void DummyClient::CheckIncomingData()
+void DummyServer::CheckIncomingData(int socket)
 {
-	int socket = socketDescriptor();
-
 	fd_set readset;
 	FD_ZERO(&readset);
 	FD_SET(socket, &readset);
@@ -87,7 +112,7 @@ void DummyClient::CheckIncomingData()
 	int ret = select(maxfd+1, &readset, NULL, NULL, &timeout); // TODO: Is this compatible with winsocks?
 	if (ret <= 0)
 	{
-		CheckIncomingData();
+		CheckIncomingData(socket);
 		return;
 	}
 
@@ -102,6 +127,8 @@ void DummyClient::CheckIncomingData()
 					qDebug() << tr("Successfully exchanged handshake token!");
 				else
 					qDebug() << tr("Failed to exchange handshake token!");
+
+				// TODO: should probably write a handshake in return, but ... I'm lazy
 				break;
 
 			default:
@@ -110,44 +137,18 @@ void DummyClient::CheckIncomingData()
 	}
 	else
 	{
-		CheckIncomingData();
+		CheckIncomingData(socket);
 		return;
 	}
 }
 
-void WriteHandshake(int socket)
-{
-	char data[5];
-	data[0] = CMD_HANDSHAKE;
-	*(uint32_t*)&data[1] = htonl(handshake);
-	send(socket, data, sizeof(data), 0);
-}
-
-DffServer::DffServer(QObject* parent) : QTcpServer(parent)
-{
-	connect(this, SIGNAL(newConnection()), this, SLOT(OnNewConnection()));
-}
-
-void DffServer::StartListen()
-{
-	listen(QHostAddress::Any, DFF_CONN_PORT);
-}
-
-void DffServer::OnNewConnection()
-{
-	qDebug() << "Server got a new connection";
-	QTcpSocket* socket = nextPendingConnection();
-
-	WriteHandshake(socket->socketDescriptor());
-}
-
 ServerWidget::ServerWidget() : QWidget()
 {
-	DffServer* server = new DffServer(this);
-	client = new DummyClient(this);
+	DummyServer* server = new DummyServer(this);
+	client = new DffClient(this);
 
-	QPushButton* start_listen = new QPushButton(tr("Server"));
-	QPushButton* try_connect = new QPushButton(tr("Client"));
+	QPushButton* start_listen = new QPushButton(tr("Start Dummy Server"));
+	QPushButton* try_connect = new QPushButton(tr("Start Client"));
 
 	connect(start_listen, SIGNAL(clicked()), server, SLOT(StartListen()));
 	connect(try_connect, SIGNAL(clicked()), this, SLOT(OnTryConnect()));

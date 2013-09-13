@@ -2,29 +2,29 @@
 #include <QTcpSocket>
 #include <QTcpServer>
 
-class DummyClient : public QTcpSocket
+class DffClient : public QTcpSocket
 {
 	Q_OBJECT
 
 public:
-	DummyClient(QObject* parent = NULL);
+	DffClient(QObject* parent = NULL);
 
 public slots:
 	void Connect(const QString & hostName);
 	void OnConnected();
-	void CheckIncomingData();
 };
 
-class DffServer : public QTcpServer
+class DummyServer : public QTcpServer
 {
 	Q_OBJECT
 
 public:
-	DffServer(QObject* parent = NULL);
+	DummyServer(QObject* parent = NULL);
 
 public slots:
 	void StartListen();
 	void OnNewConnection();
+	void CheckIncomingData(int socket);
 };
 
 class ServerWidget : public QWidget
@@ -38,5 +38,5 @@ public slots:
 	void OnTryConnect();
 
 private:
-	DummyClient* client;
+	DffClient* client;
 };
