@@ -13,6 +13,8 @@
 #include <unistd.h>
 #include <fat.h>
 #include <dirent.h>
+#include <network.h>
+#include "protocol.h"
 
 
 typedef uint64_t u64;
@@ -415,11 +417,6 @@ struct FifoData
 
 void LoadDffData(FifoData& out)
 {
-	if(!fatInitDefault())
-	{
-		printf("fatInitDefault failed!\n");
-	}
-
 	out.file = fopen(DFF_FILENAME, "r");
 	if (!out.file)
 		printf("Failed to open file!\n");
@@ -693,13 +690,142 @@ void Init()
 #endif
 
 	WPAD_Init();
+
+	if(!fatInitDefault())
+	{
+		printf("fatInitDefault failed!\n");
+	}
+
+	net_init();
 }
 
 #include "mygx.h"
 
+int ReadHandshake(int socket)
+{
+	char data[5];
+	net_recv(socket, data, sizeof(data), 0);
+	uint32_t received_handshake = ntohl(*(uint32_t*)&data[1]);
+
+	if (data[0] != CMD_HANDSHAKE || received_handshake != handshake)
+		return RET_FAIL;
+
+	return RET_SUCCESS;
+}
+
+bool CheckIfHomePressed()
+{
+/*	VIDEO_WaitVSync();
+	fb ^= 1;
+*/
+	WPAD_ScanPads();
+
+	if (WPAD_ButtonsDown(0) & WPAD_BUTTON_HOME)
+	{
+		return true;
+	}
+}
+
+void ReadStreamedDff(int socket)
+{
+	char cmd = CMD_STREAM_DFF;
+	net_recv(socket, &cmd, 1, 0);
+
+	int32_t n_size;
+	net_recv(socket, &n_size, 4, 0);
+	int32_t size = ntohl(n_size);
+	printf("About to read %d bytes of dff data!", size);
+
+	FILE* file = fopen("sd:/dff/test.dff", "wb"); // TODO: Change!
+
+	if (file == NULL)
+	{
+		printf("Failed to open output file!\n");
+	}
+
+	for (; size > 0; )
+	{
+		char data[dff_stream_chunk_size];
+		ssize_t num_received = net_recv(socket, data, std::min(size,dff_stream_chunk_size), 0);
+		if (num_received == -1)
+		{
+			printf("Error in recv!\n");
+		}
+		else if (num_received > 0)
+		{
+			fwrite(data, num_received, 1, file);
+			size -= num_received;
+		}
+//		printf("%d bytes left to be read!\n", size);
+		CheckIfHomePressed();
+	}
+	printf ("Done reading :)\n");
+
+	fclose(file);
+}
+
+int WaitForConnection()
+{
+	int addrlen;
+	struct sockaddr_in my_name, peer_name;
+	int status;
+
+	int server_socket = net_socket(AF_INET, SOCK_STREAM, 0);
+	if (server_socket == -1)
+	{
+		printf("Failed to create server socket\n");
+	}
+	int yes = 1;
+	net_setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+
+	memset(&my_name, 0, sizeof(my_name));
+	my_name.sin_family = AF_INET;
+	my_name.sin_port = htons(DFF_CONN_PORT);
+	my_name.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	status = net_bind(server_socket, (struct sockaddr*)&my_name, sizeof(my_name));
+	if (status == -1)
+	{
+		printf("Failed to bind server socket\n");
+	}
+
+	status = net_listen(server_socket, 5); // TODO: Change second parameter..
+	if (status == -1)
+	{
+		printf("Failed to listen on server socket\n");
+	}
+	printf("Listening now!\n");
+
+	int client_socket = -1;
+
+	struct sockaddr_in client_info;
+	socklen_t ssize = sizeof(client_info);
+	int new_socket = net_accept(server_socket, (struct sockaddr*)&client_info, &ssize);
+	if (new_socket < 0)
+	{
+		printf("accept failed!\n");
+	}
+	else
+	{
+		client_socket = new_socket;
+		printf("accept succeeded and returned %d\n", client_socket);
+	}
+
+	return client_socket;
+}
+
 int main()
 {
 	Init();
+
+	printf("Init done!\n");
+	int client_socket = WaitForConnection();
+	if (RET_SUCCESS == ReadHandshake(client_socket))
+		printf("Successfully exchanged handshake token!\n");
+	else
+		printf("Failed to exchanged handshake token!\n");
+
+	ReadStreamedDff(client_socket);
 
 	FifoData fifo_data;
 	LoadDffData(fifo_data);

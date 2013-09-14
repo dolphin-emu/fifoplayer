@@ -15,24 +15,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-
-#define DFF_CONN_PORT 15342
-
-#define CMD_HANDSHAKE 0x00  // First command ever sent; used for exchanging version and handshake tokens
-#define CMD_STREAM_DFF 0x01  // Start uploading a new fifo log
-#define CMD_RUN_DFF 0x02  // Run most recently uploaded fifo log
-#define CMD_SET_CONTEXT_FRAME 0x03  // Specify what frame the following communication is referring to
-#define CMD_SET_CONTEXT_COMMAND 0x04  // Specify what command the following communication is referring to
-#define CMD_ENABLE_COMMAND 0x05 // Enable current command
-#define CMD_DISABLE_COMMAND 0x06 // Enable current command
-
-#define RET_FAIL 0
-#define RET_SUCCESS 1
-#define RET_WOULDBLOCK 2
-
-const int version = 0;
-const uint32_t handshake = 0x6fe62ac7;
-const int dff_stream_chunk_size = 32; // in bytes
+#include "../source/protocol.h"
 
 void WriteHandshake(int socket)
 {
@@ -59,14 +42,16 @@ void DffClient::Connect(const QString& hostName)
 		qDebug() << "Error at creating socket!";
 	}
 
+	memset(&serv_name, 0, sizeof(serv_name));
 	serv_name.sin_family = AF_INET;
-	inet_aton(hostName.toLatin1().constData(), &serv_name.sin_addr);
+//	inet_aton(hostName.toLatin1().constData(), &serv_name.sin_addr);
+	inet_aton("192.168.178.22", &serv_name.sin_addr);
 	serv_name.sin_port = htons(DFF_CONN_PORT);
 
 	status = ::connect(socket, (struct sockaddr*)&serv_name, sizeof(serv_name));
 	if (status == -1)
 	{
-		qDebug() << "Client couldn't connect";
+		perror("connect");
 	}
 	else
 	{
@@ -77,47 +62,8 @@ void DffClient::Connect(const QString& hostName)
 void DffClient::OnConnected()
 {
 	qDebug() << "Client connected successfully";
-	qDebug() << "OMG " << socket;
 
 	WriteHandshake(socket);
-}
-
-int ReadHandshake(int socket)
-{
-	char data[5];
-	recv(socket, data, sizeof(data), 0);
-	uint32_t received_handshake = ntohl(*(uint32_t*)&data[1]);
-
-	if (data[0] != CMD_HANDSHAKE || received_handshake != handshake)
-		return RET_FAIL;
-
-	return RET_SUCCESS;
-}
-
-void ReadStreamedDff(int socket)
-{
-	char cmd = CMD_STREAM_DFF;
-	recv(socket, &cmd, 1, 0);
-
-	int32_t n_size;
-	recv(socket, &n_size, 4, 0);
-	int32_t size = ntohl(n_size);
-	QFile file("dffout.dff");
-	file.open(QIODevice::WriteOnly);
-
-	qDebug() << "About to read " << size << " bytes of dff data!";
-
-	QDataStream stream(&file);
-
-	for (; size > 0; size -= dff_stream_chunk_size)
-	{
-		char data[dff_stream_chunk_size];
-		recv(socket, data, std::min(size,dff_stream_chunk_size), 0);
-		stream.writeRawData(data, std::min(size,dff_stream_chunk_size));
-		qDebug() << size << " bytes left to be read!";
-	}
-
-	file.close();
 }
 
 // Dummy code used for testing
@@ -208,16 +154,16 @@ begin:
 		switch (cmd)
 		{
 			case CMD_HANDSHAKE:
-				if (RET_SUCCESS == ReadHandshake(client_socket))
+/*				if (RET_SUCCESS == ReadHandshake(client_socket))
 					qDebug() << tr("Successfully exchanged handshake token!");
 				else
 					qDebug() << tr("Failed to exchange handshake token!");
-
+*/
 				// TODO: should probably write a handshake in return, but ... I'm lazy
 				break;
 
 			case CMD_STREAM_DFF:
-				ReadStreamedDff(client_socket);
+//				ReadStreamedDff(client_socket);
 				break;
 
 			default:;
@@ -285,8 +231,19 @@ void WriteStreamDff(int socket, QString filename)
 	{
 		char data[dff_stream_chunk_size];
 		stream.readRawData(data, std::min(size,dff_stream_chunk_size));
-		send(socket, data, std::min(size,dff_stream_chunk_size), 0);
-		qDebug() << size << " bytes left to be sent!";
+		int ret = send(socket, data, std::min(size,dff_stream_chunk_size), 0);
+		if (ret == -1)
+		{
+			perror("send");
+		}
+		else if (ret != std::min(size,dff_stream_chunk_size))
+		{
+			qDebug() << "Only printed " << ret << " bytes of data...";
+		}
+		else
+		{
+			qDebug() << size << " bytes left to be sent!";
+		}
 	}
 
 	file.close();
