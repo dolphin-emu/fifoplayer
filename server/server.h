@@ -5,6 +5,7 @@
 
 class QLineEdit;
 class QModelIndex;
+class QItemSelection;
 
 //class AnalyzedFrameInfo;
 #include "../source/FifoAnalyzer.h"
@@ -29,12 +30,20 @@ public:
 	int columnCount(const QModelIndex& parent = QModelIndex()) const;
 	QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const;
 
+	void SetSelectionEnabled(bool enable);
+
 public slots:
 	void OnFifoDataChanged(FifoData& fifo_data);
+
+	void OnEnableSelected();
+	void OnDisableSelected();
+
+	void OnSelectionChanged(const QItemSelection& selected);
 
 private:
 	std::vector<AnalyzedFrameInfo> analyzed_frames;
 	TreeItem* root_item;
+	QModelIndexList selection;
 };
 
 class DffClient : public QObject

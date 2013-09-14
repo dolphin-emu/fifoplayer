@@ -2,7 +2,6 @@
 #define FIFOPLAYER_DFFFILE_H
 
 #include "CommonTypes.h"
-#include <endian.h>
 
 #if BYTE_ORDER==BIG_ENDIAN
 static uint64_t le64toh(uint64_t val)
@@ -42,6 +41,7 @@ static uint16_t be16toh(uint16_t val)
 }
 #elif BYTE_ORDER==LITTLE_ENDIAN
 // endian.h takes care of defining these...
+#include <endian.h>
 #endif
 
 

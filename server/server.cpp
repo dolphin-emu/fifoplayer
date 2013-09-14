@@ -20,6 +20,8 @@
 #include "../source/FifoDataFile.h"
 #include "../source/FifoAnalyzer.h"
 
+int* client_socket = NULL; // TODO: Remove this
+
 void WriteHandshake(int socket)
 {
 	char data[5];
@@ -28,8 +30,21 @@ void WriteHandshake(int socket)
 	send(socket, data, sizeof(data), 0);
 }
 
+void WriteSetCommandEnabled(int socket, u32 frame, u32 object, u32 offset, int enable)
+{
+	char cmd = (enable) ? CMD_ENABLE_COMMAND : CMD_DISABLE_COMMAND;
+	u32 frame_n = htonl(frame);
+	u32 object_n = htonl(object);
+	u32 offset_n = htonl(offset);
+	send(socket, &cmd, sizeof(cmd), 0);
+	send(socket, &frame_n, sizeof(frame_n), 0);
+	send(socket, &object_n, sizeof(object_n), 0);
+	send(socket, &offset_n, sizeof(offset_n), 0);
+}
+
 DffClient::DffClient(QObject* parent) : QObject(parent)
 {
+	client_socket = &socket;
 	connect(this, SIGNAL(connected()), this, SLOT(OnConnected()));
 }
 
@@ -47,9 +62,8 @@ void DffClient::Connect(const QString& hostName)
 
 	memset(&serv_name, 0, sizeof(serv_name));
 	serv_name.sin_family = AF_INET;
-//	inet_aton(hostName.toLatin1().constData(), &serv_name.sin_addr);
-	inet_aton("192.168.178.22", &serv_name.sin_addr);
 	serv_name.sin_port = htons(DFF_CONN_PORT);
+	inet_aton(hostName.toLatin1().constData(), &serv_name.sin_addr);
 
 	status = ::connect(socket, (struct sockaddr*)&serv_name, sizeof(serv_name));
 	if (status == -1)
@@ -135,10 +149,11 @@ begin:
 class TreeItem : public QObject
 {
 public:
-	TreeItem(QObject* parent) : QObject(parent), type(-1), index(-1), parent(NULL) {}
+	TreeItem(QObject* parent) : QObject(parent), type(-1), index(-1), enabled(true), parent(NULL) {}
 
 	int type;
 	int index;
+	bool enabled;
 	std::vector<TreeItem*> children;
 	TreeItem* parent;
 };
@@ -167,6 +182,14 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 			return QVariant(QString("Object %1").arg(index.row()));
 		else
 			return QVariant(QString("Command %1").arg(index.row()));
+	}
+	else if (role == Qt::BackgroundRole)
+	{
+		TreeItem* item = (TreeItem*)index.internalPointer();
+		if (!item->enabled)
+			return QVariant(QBrush(Qt::gray));
+		else
+			return QVariant();
 	}
 	else
 		return QVariant();
@@ -238,6 +261,7 @@ void DffModel::OnFifoDataChanged(FifoData& fifo_data)
 				command->type = IDX_COMMAND;
 				command->parent = object;
 				command->index = commandit - (*objectit).cmd_starts.begin();
+				command->enabled = (*objectit).cmd_enabled[commandit - (*objectit).cmd_starts.begin()];
 				object->children.push_back(command);
 			}
 		}
@@ -245,6 +269,46 @@ void DffModel::OnFifoDataChanged(FifoData& fifo_data)
 
 	endResetModel();
 }
+
+void DffModel::OnSelectionChanged(const QItemSelection& selected)
+{
+	selection = selected.indexes();
+}
+
+
+void DffModel::OnEnableSelected()
+{
+	SetSelectionEnabled(true);
+}
+
+void DffModel::OnDisableSelected()
+{
+	SetSelectionEnabled(false);
+}
+
+void DffModel::SetSelectionEnabled(bool enable)
+{
+	// TODO: It seems like multi-selection doesn't work, yet...
+	for (QModelIndexList::iterator index = selection.begin(); index != selection.end(); ++index)
+	{
+		TreeItem* item = (TreeItem*)index->internalPointer();
+
+		if (item->type != IDX_COMMAND)
+			continue;
+
+		if (enable != item->enabled)
+		{
+			u32 object_idx = item->parent->index;
+			u32 frame_idx = item->parent->parent->index;
+			WriteSetCommandEnabled(*client_socket, frame_idx, object_idx, analyzed_frames[frame_idx].objects[object_idx].cmd_starts[item->index], enable);
+		}
+
+		item->enabled = enable;
+		emit dataChanged(*index, *index);
+		qDebug() << "Changed item";
+	}
+}
+
 
 ServerWidget::ServerWidget() : QWidget()
 {
@@ -267,8 +331,16 @@ ServerWidget::ServerWidget() : QWidget()
 	QTreeView* dff_view = new QTreeView;
 	DffModel* dff_model = new DffModel(this);
 	dff_view->setModel(dff_model);
+	dff_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
 
 	connect(this, SIGNAL(FifoDataChanged(FifoData&)), dff_model, SLOT(OnFifoDataChanged(FifoData&)));
+	connect(dff_view->selectionModel(), SIGNAL(selectionChanged(const QItemSelection&, const QItemSelection&)), dff_model, SLOT(OnSelectionChanged(const QItemSelection&)));
+
+	QPushButton* enable_command_button = new QPushButton(tr("Enable"));
+	QPushButton* disable_command_button = new QPushButton(tr("Disable"));
+
+	connect(enable_command_button, SIGNAL(clicked()), dff_model, SLOT(OnEnableSelected()));
+	connect(disable_command_button, SIGNAL(clicked()), dff_model, SLOT(OnDisableSelected()));
 
 	QVBoxLayout* main_layout = new QVBoxLayout;
 	{
@@ -287,6 +359,12 @@ ServerWidget::ServerWidget() : QWidget()
 	}
 	{
 		main_layout->addWidget(dff_view);
+	}
+	{
+		QHBoxLayout* layout = new QHBoxLayout;
+		layout->addWidget(enable_command_button);
+		layout->addWidget(disable_command_button);
+		main_layout->addLayout(layout);
 	}
 	setLayout(main_layout);
 }
