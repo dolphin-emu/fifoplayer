@@ -2,10 +2,6 @@
 // Licensed under GPLv2
 // Refer to the license.txt file included.
 
-//#include "FifoAnalyzer.h"
-
-//#include "Core.h"
-
 #include "VertexLoader.h"
 #include "VertexLoader_Position.h"
 #include "VertexLoader_Normal.h"
@@ -18,12 +14,6 @@ struct CPMemory
 	u32 arrayBases[16];
 	u32 arrayStrides[16];
 };
-/*void Init()
-{
-	VertexLoader_Normal::Init();
-	VertexLoader_Position::Init();
-	VertexLoader_TextCoord::Init();
-}*/
 
 u8 ReadFifo8(u8 *&data)
 {
@@ -46,46 +36,6 @@ u32 ReadFifo32(u8 *&data)
 	return value;
 }
 
-/*void InitBPMemory(BPMemory *bpMem)
-{
-	memset(bpMem, 0, sizeof(BPMemory));
-	bpMem->bpMask = 0x00FFFFFF;
-}
-
-BPCmd DecodeBPCmd(u32 value, const BPMemory &bpMem)
-{
-	//handle the mask register
-	int opcode = value >> 24;
-	int oldval = ((u32*)&bpMem)[opcode];
-	int newval = (oldval & ~bpMem.bpMask) | (value & bpMem.bpMask);
-	int changes = (oldval ^ newval) & 0xFFFFFF;
-
-	BPCmd bp = {opcode, changes, newval};
-
-	return bp;
-}
-
-void LoadBPReg(const BPCmd &bp, BPMemory &bpMem)
-{
-	((u32*)&bpMem)[bp.address] = bp.newvalue;
-
-	//reset the mask register
-	if (bp.address != 0xFE)
-		bpMem.bpMask = 0xFFFFFF;
-}
-
-void GetTlutLoadData(u32 &tlutAddr, u32 &memAddr, u32 &tlutXferCount, BPMemory &bpMem)
-{
-	tlutAddr = (bpMem.tmem_config.tlut_dest & 0x3FF) << 9;
-	tlutXferCount = (bpMem.tmem_config.tlut_dest & 0x1FFC00) >> 5;
-
-	// TODO - figure out a cleaner way.
-	if (Core::g_CoreStartupParameter.bWii)
-		memAddr = bpMem.tmem_config.tlut_src << 5;
-	else
-		memAddr = (bpMem.tmem_config.tlut_src & 0xFFFFF) << 5;
-}
-*/
 void LoadCPReg(u32 subCmd, u32 value, CPMemory &cpMem)
 {
 	switch (subCmd & 0xF0)
@@ -101,17 +51,14 @@ void LoadCPReg(u32 subCmd, u32 value, CPMemory &cpMem)
 		break;
 
 	case 0x70:
-//		_assert_((subCmd & 0x0F) < 8);
 		cpMem.vtxAttr[subCmd & 7].g0.Hex = value;
 		break;
 
 	case 0x80:
-//		_assert_((subCmd & 0x0F) < 8);
 		cpMem.vtxAttr[subCmd & 7].g1.Hex = value;
 		break;
 
 	case 0x90:
-//		_assert_((subCmd & 0x0F) < 8);
 		cpMem.vtxAttr[subCmd & 7].g2.Hex = value;
 		break;
 
