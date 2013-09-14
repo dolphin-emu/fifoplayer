@@ -15,11 +15,13 @@
 #include <dirent.h>
 #include <network.h>
 #include "protocol.h"
-
+#include "BPMemory.h"
+#include "DffFile.h"
 
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint8_t u8;
+
 
 #define DEF_ALIGN 32
 class aligned_buf
@@ -148,149 +150,6 @@ u8* GetPointer(u32 addr)
 	return NULL;
 }
 
-#if BYTE_ORDER==BIG_ENDIAN
-uint64_t le64toh(uint64_t val)
-{
-	return ((val&0xff)<<56)|((val&0xff00)<<40)|((val&0xff0000)<<24)|((val&0xff000000)<<8) |
-		((val&0xff00000000)>>8)|((val&0xff0000000000)>>24)|((val&0xff000000000000)>>40)|((val&0xff00000000000000)>>56);
-}
-
-uint32_t le32toh(uint32_t val)
-{
-	return ((val&0xff)<<24)|((val&0xff00)<<8)|((val&0xff0000)>>8)|((val&0xff000000)>>24);
-}
-
-uint32_t h32tole(uint32_t val)
-{
-	return le32toh(val);
-}
-
-uint16_t le16toh(uint16_t val)
-{
-	return ((val&0xff)<<8)|((val&0xff00)>>8);
-}
-
-uint64_t be64toh(uint64_t val)
-{
-	return val;
-}
-
-uint32_t be32toh(uint32_t val)
-{
-	return val;
-}
-
-uint16_t be16toh(uint16_t val)
-{
-	return val;
-}
-
-#elif BYTE_ORDER==LITTLE_ENDIAN
-#error other stuff
-#endif
-
-#pragma pack(push, 4)
-
-union DffFileHeader {
-	struct {
-		u32 fileId;
-		u32 file_version;
-		u32 min_loader_version;
-		u64 bpMemOffset;
-		u32 bpMemSize;
-		u64 cpMemOffset;
-		u32 cpMemSize;
-		u64 xfMemOffset;
-		u32 xfMemSize;
-		u64 xfRegsOffset;
-		u32 xfRegsSize;
-		u64 frameListOffset;
-		u32 frameCount;
-		u32 flags;
-	};
-	u32 rawData[32];
-
-	void FixEndianness()
-	{
-		fileId = le32toh(fileId);
-		file_version = le32toh(file_version);
-		min_loader_version = le32toh(min_loader_version);
-		bpMemOffset = le64toh(bpMemOffset);
-		bpMemSize = le32toh(bpMemSize);
-		cpMemOffset = le64toh(cpMemOffset);
-		cpMemSize = le32toh(cpMemSize);
-		xfMemOffset = le64toh(xfMemOffset);
-		xfMemSize = le32toh(xfMemSize);
-		xfRegsOffset = le64toh(xfRegsOffset);
-		xfRegsSize = le32toh(xfRegsSize);
-		frameListOffset = le64toh(frameListOffset);
-		frameCount = le32toh(frameCount);
-		flags = le32toh(flags);
-	}
-};
-
-union DffFrameInfo
-{
-	struct
-	{
-		u64 fifoDataOffset;
-		u32 fifoDataSize;
-		u32 fifoStart;
-		u32 fifoEnd;
-		u64 memoryUpdatesOffset;
-		u32 numMemoryUpdates;
-	};
-	u32 rawData[16];
-
-	void FixEndianness()
-	{
-		fifoDataOffset = le64toh(fifoDataOffset);
-		fifoDataSize = le32toh(fifoDataSize);
-		fifoStart = le32toh(fifoStart);
-		fifoEnd = le32toh(fifoEnd);
-		memoryUpdatesOffset = le64toh(memoryUpdatesOffset);
-		numMemoryUpdates = le32toh(numMemoryUpdates);
-	}
-};
-
-struct DffMemoryUpdate
-{
-	enum Type {
-		TEXTURE_MAP = 0x01,
-		XF_DATA = 0x02,
-		VERTEX_STREAM = 0x04,
-		TMEM = 0x08,
-	};
-
-	u32 fifoPosition;
-	u32 address;
-	u64 dataOffset;
-	u32 dataSize;
-	u8 type;
-
-	void FixEndianness()
-	{
-		fifoPosition = le32toh(fifoPosition);
-		address = le32toh(address);
-		dataOffset = le64toh(dataOffset);
-		dataSize = le32toh(dataSize);
-	}
-};
-
-#define BPMEM_TRIGGER_EFB_COPY 0x52
-#define BPMEM_CLEARBBOX1       0x55
-#define BPMEM_CLEARBBOX2       0x56
-#define BPMEM_CLEAR_PIXEL_PERF 0x57
-#define BPMEM_SETDRAWDONE      0x45
-#define BPMEM_PE_TOKEN_ID      0x47
-#define BPMEM_PE_TOKEN_INT_ID  0x48
-#define BPMEM_PRELOAD_MODE     0x63
-#define BPMEM_LOADTLUT0        0x64
-#define BPMEM_LOADTLUT1        0x65
-#define BPMEM_TEXINVALIDATE    0x66
-
-
-
 struct FifoFrameData
 {
 	std::vector<u8> fifoData;
@@ -301,7 +160,6 @@ struct FifoFrameData
 	std::vector<DffMemoryUpdate> memoryUpdates;
 };
 
-#include "BPMemory.h"
 #define ENABLE_CONSOLE 0
 
 static u32 tex_addr[8] = {0};
@@ -724,6 +582,7 @@ bool CheckIfHomePressed()
 	{
 		return true;
 	}
+	return false;
 }
 
 void ReadStreamedDff(int socket)
