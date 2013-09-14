@@ -1,3 +1,6 @@
+#ifndef FIFOPLAYER_DFFFILE_H
+#define FIFOPLAYER_DFFFILE_H
+
 #include "CommonTypes.h"
 
 #if BYTE_ORDER==BIG_ENDIAN
@@ -135,3 +138,7 @@ struct DffMemoryUpdate
 #endif
 	}
 };
+
+#pragma pack(pop)
+
+#endif  // FIFOPLAYER_DFFFILE_H
