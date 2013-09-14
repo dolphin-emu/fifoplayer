@@ -2,6 +2,7 @@
 #define FIFOPLAYER_DFFFILE_H
 
 #include "CommonTypes.h"
+#include <endian.h>
 
 #if BYTE_ORDER==BIG_ENDIAN
 static uint64_t le64toh(uint64_t val)
@@ -39,9 +40,8 @@ static uint16_t be16toh(uint16_t val)
 {
 	return val;
 }
-
 #elif BYTE_ORDER==LITTLE_ENDIAN
-#warning other stuff
+// endian.h takes care of defining these...
 #endif
 
 
@@ -68,7 +68,6 @@ union DffFileHeader {
 
 	void FixEndianness()
 	{
-#if BYTE_ORDER == BIG_ENDIAN
 		fileId = le32toh(fileId);
 		file_version = le32toh(file_version);
 		min_loader_version = le32toh(min_loader_version);
@@ -83,7 +82,6 @@ union DffFileHeader {
 		frameListOffset = le64toh(frameListOffset);
 		frameCount = le32toh(frameCount);
 		flags = le32toh(flags);
-#endif
 	}
 };
 
@@ -102,14 +100,12 @@ union DffFrameInfo
 
 	void FixEndianness()
 	{
-#if BYTE_ORDER == BIG_ENDIAN
 		fifoDataOffset = le64toh(fifoDataOffset);
 		fifoDataSize = le32toh(fifoDataSize);
 		fifoStart = le32toh(fifoStart);
 		fifoEnd = le32toh(fifoEnd);
 		memoryUpdatesOffset = le64toh(memoryUpdatesOffset);
 		numMemoryUpdates = le32toh(numMemoryUpdates);
-#endif
 	}
 };
 
@@ -130,12 +126,10 @@ struct DffMemoryUpdate
 
 	void FixEndianness()
 	{
-#if BYTE_ORDER == BIG_ENDIAN
 		fifoPosition = le32toh(fifoPosition);
 		address = le32toh(address);
 		dataOffset = le64toh(dataOffset);
 		dataSize = le32toh(dataSize);
-#endif
 	}
 };
 

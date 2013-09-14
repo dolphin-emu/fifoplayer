@@ -3,9 +3,10 @@
 
 void LoadDffData(const char* filename, FifoData& out)
 {
-	out.file = fopen(filename, "r");
+	out.file = fopen(filename, "rb");
 	if (!out.file)
 		printf("Failed to open file!\n");
+	else printf("File opened successfully!\n");
 
 	DffFileHeader header;
 	size_t numread = fread(&header, sizeof(DffFileHeader), 1, out.file);

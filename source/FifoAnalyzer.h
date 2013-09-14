@@ -2,12 +2,18 @@
 // Licensed under GPLv2
 // Refer to the license.txt file included.
 
+#ifndef FIFOPLAYER_FIFOANALYZER_H
+#define FIFOPLAYER_FIFOANALYZER_H
+
+#include "CommonTypes.h"
 #include "VertexLoader.h"
 #include "VertexLoader_Position.h"
 #include "VertexLoader_Normal.h"
 #include "VertexLoader_TextCoord.h"
+#include "OpcodeDecoding.h"
+#include "FifoDataFile.h"
 
-#pragma pack(pop)
+#pragma pack(push, 4)
 struct CPMemory
 {
 	TVtxDesc vtxDesc;
@@ -15,29 +21,30 @@ struct CPMemory
 	u32 arrayBases[16];
 	u32 arrayStrides[16];
 };
+#pragma pack(pop)
 
-u8 ReadFifo8(u8 *&data)
+static u8 ReadFifo8(u8 *&data)
 {
 	u8 value = data[0];
 	data += 1;
 	return value;
 }
 
-u16 ReadFifo16(u8 *&data)
+static u16 ReadFifo16(u8 *&data)
 {
 	u16 value = be16toh(*(u16*)data);
 	data += 2;
 	return value;
 }
 
-u32 ReadFifo32(u8 *&data)
+static u32 ReadFifo32(u8 *&data)
 {
 	u32 value = be32toh(*(u32*)data);
 	data += 4;
 	return value;
 }
 
-void LoadCPReg(u32 subCmd, u32 value, CPMemory &cpMem)
+static void LoadCPReg(u32 subCmd, u32 value, CPMemory &cpMem)
 {
 	switch (subCmd & 0xF0)
 	{
@@ -73,7 +80,7 @@ void LoadCPReg(u32 subCmd, u32 value, CPMemory &cpMem)
 	}
 }
 
-void CalculateVertexElementSizes(int sizes[], int vatIndex, const CPMemory &cpMem)
+static void CalculateVertexElementSizes(int sizes[], int vatIndex, const CPMemory &cpMem)
 {
 	const TVtxDesc &vtxDesc = cpMem.vtxDesc;
 	const VAT &vtxAttr = cpMem.vtxAttr[vatIndex];
@@ -158,7 +165,7 @@ void CalculateVertexElementSizes(int sizes[], int vatIndex, const CPMemory &cpMe
 	}
 }
 
-u32 CalculateVertexSize(int vatIndex, const CPMemory &cpMem)
+static u32 CalculateVertexSize(int vatIndex, const CPMemory &cpMem)
 {
 	u32 vertexSize = 0;
 
@@ -171,12 +178,22 @@ u32 CalculateVertexSize(int vatIndex, const CPMemory &cpMem)
 	return vertexSize;
 }
 
+struct AnalyzedObject
+{
+	AnalyzedObject(u32 start, u32 end) : start(start), end(end) {}
+
+	u32 start; // Address of first command in a polygon rendering series
+	u32 end;  // Address of first command after rendering polygons
+
+	std::vector<u32> cmd_starts;
+	std::vector<bool> cmd_enabled;
+};
+
 struct AnalyzedFrameInfo
 {
-	std::vector<u32> object_starts; // Address of first command in a polygon rendering series
-	std::vector<u32> object_ends; // Address of first command after rendering polygons
+	std::vector<AnalyzedObject> objects;
 
-	// These two should be in a single vector, actually...
+	// TODO: These should be replaced in favor of the members in AnalyzedObject
 	std::vector<u32> cmd_starts; // Address of each command of the frame
 	std::vector<bool> cmd_enabled; // Whether to process this command or not
 
@@ -210,6 +227,7 @@ public:
 		{
 			FifoFrameData& src_frame = data.frames[frame_idx];
 			AnalyzedFrameInfo& dst_frame = frame_info[frame_idx];
+			AnalyzedObject* cur_object = NULL;
 
 			u32 cmd_start = 0;
 
@@ -223,16 +241,27 @@ public:
 				if (was_drawing != m_drawingObject)
 				{
 					if (m_drawingObject)
-						dst_frame.object_starts.push_back(cmd_start);
+					{
+						dst_frame.objects.push_back(AnalyzedObject(cmd_start, cmd_start));
+						cur_object = &dst_frame.objects.back();
+					}
 					else
-						dst_frame.object_ends.push_back(cmd_start);
+					{
+						// TODO: Should make sure that the first command is always a draw command...
+						dst_frame.objects.back().end = cmd_start;
+					}
 				}
 				dst_frame.cmd_starts.push_back(cmd_start);
 				dst_frame.cmd_enabled.push_back(true);
+				if (cur_object)
+				{
+					cur_object->cmd_starts.push_back(cmd_start);
+					cur_object->cmd_enabled.push_back(true);
+				}
 				cmd_start += cmd_size;
 			}
-			if (dst_frame.object_ends.size() < dst_frame.object_starts.size())
-				dst_frame.object_ends.push_back(cmd_start);
+			if (m_drawingObject)
+				dst_frame.objects.back().end = cmd_start;
 		}
 	}
 
@@ -318,7 +347,7 @@ public:
 				else
 				{
 					printf("Invalid fifo command 0x%x\n", cmd);
-					sleep(1);
+//					sleep(1);
 				}
 				break;
 		}
@@ -330,3 +359,5 @@ private:
 
 	CPMemory m_cpmem;
 };
+
+#endif  // FIFOPLAYER_FIFOANALYZER_H

@@ -3,10 +3,12 @@
 #ifndef FIFOPLAYER_FIFODATAFILE_H
 #define FIFOPLAYER_FIFODATAFILE_H
 
+#include "CommonTypes.h"
 #include <vector>
 #include <stdio.h>
 
-struct DffMemoryUpdate;
+//struct DffMemoryUpdate;
+#include "DffFile.h"
 
 struct FifoFrameData
 {

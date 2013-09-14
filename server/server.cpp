@@ -10,12 +10,15 @@
 #include <QLabel>
 #include <QFileDialog>
 #include <QFile>
+#include <QTreeView>
 #include "server.h"
 #include <sys/socket.h>
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include "../source/protocol.h"
+#include "../source/FifoDataFile.h"
+#include "../source/FifoAnalyzer.h"
 
 void WriteHandshake(int socket)
 {
@@ -129,6 +132,120 @@ begin:
 }
 #endif
 
+class TreeItem : public QObject
+{
+public:
+	TreeItem(QObject* parent) : QObject(parent), type(-1), index(-1), parent(NULL) {}
+
+	int type;
+	int index;
+	std::vector<TreeItem*> children;
+	TreeItem* parent;
+};
+
+DffModel::DffModel(QObject* parent) : QAbstractItemModel(parent)
+{
+	root_item = new TreeItem(this);
+}
+
+int DffModel::columnCount(const QModelIndex& parent) const
+{
+	return 1;
+}
+
+QVariant DffModel::data(const QModelIndex& index, int role) const
+{
+	if (!index.isValid())
+		return QVariant();
+
+	if (role == Qt::DisplayRole)
+	{
+		TreeItem* item = (TreeItem*)index.internalPointer();
+		if (item->type == IDX_FRAME)
+			return QVariant(QString("Frame %1").arg(index.row()));
+		else if (item->type == IDX_OBJECT)
+			return QVariant(QString("Object %1").arg(index.row()));
+		else
+			return QVariant(QString("Command %1").arg(index.row()));
+	}
+	else
+		return QVariant();
+}
+
+QModelIndex DffModel::index(int row, int column, const QModelIndex& parent) const
+{
+	if (!parent.isValid())
+	{
+		return createIndex(row, column, root_item->children[row]);
+	}
+	else if (!parent.parent().isValid())
+	{
+		TreeItem* frame = (TreeItem*)parent.internalPointer();
+		return createIndex(row, column, frame->children[row]);
+	}
+	else
+	{
+		TreeItem* object = (TreeItem*)parent.internalPointer();
+		return createIndex(row, column, object->children[row]);
+	}
+}
+
+QModelIndex DffModel::parent(const QModelIndex& index) const
+{
+	if (!index.isValid())
+		return QModelIndex();
+
+	TreeItem* item = (TreeItem*)index.internalPointer();
+	return createIndex(item->parent->index, 0, item->parent);
+}
+
+int DffModel::rowCount(const QModelIndex& parent) const
+{
+	TreeItem* item;
+	if (!parent.isValid()) item = root_item;
+	else item = (TreeItem*)parent.internalPointer();
+
+	return item->children.size();
+}
+
+void DffModel::OnFifoDataChanged(FifoData& fifo_data)
+{
+	FifoDataAnalyzer analyzer;
+	analyzer.AnalyzeFrames(fifo_data, analyzed_frames);
+
+	beginResetModel();
+
+	delete root_item;
+	root_item = new TreeItem(this);
+
+	for (auto frameit = analyzed_frames.begin(); frameit != analyzed_frames.end(); ++frameit)
+	{
+		auto frame = new TreeItem(root_item);
+		frame->type = IDX_FRAME;
+		frame->parent = root_item;
+		frame->index = frameit - analyzed_frames.begin();
+		root_item->children.push_back(frame);
+		for (auto objectit = (*frameit).objects.begin(); objectit != (*frameit).objects.end(); ++objectit)
+		{
+			auto object = new TreeItem(frame);
+			object->type = IDX_OBJECT;
+			object->parent = frame;
+			object->index = objectit - (*frameit).objects.begin();
+			frame->children.push_back(object);
+			for (auto commandit = (*objectit).cmd_starts.begin(); commandit != (*objectit).cmd_starts.end(); ++commandit)
+			{
+				auto command = new TreeItem(object);
+				command->type = IDX_COMMAND;
+				command->parent = object;
+				command->index = commandit - (*objectit).cmd_starts.begin();
+				object->children.push_back(command);
+			}
+		}
+	}
+
+	endResetModel();
+}
+
 ServerWidget::ServerWidget() : QWidget()
 {
 	client = new DffClient(this);
@@ -147,6 +264,12 @@ ServerWidget::ServerWidget() : QWidget()
 	connect(openDffFile, SIGNAL(clicked()), this, SLOT(OnSelectDff()));
 	connect(loadDffFile, SIGNAL(clicked()), this, SLOT(OnLoadDff()));
 
+	QTreeView* dff_view = new QTreeView;
+	DffModel* dff_model = new DffModel(this);
+	dff_view->setModel(dff_model);
+
+	connect(this, SIGNAL(FifoDataChanged(FifoData&)), dff_model, SLOT(OnFifoDataChanged(FifoData&)));
+
 	QVBoxLayout* main_layout = new QVBoxLayout;
 	{
 		QHBoxLayout* layout = new QHBoxLayout;
@@ -161,6 +284,9 @@ ServerWidget::ServerWidget() : QWidget()
 		layout->addWidget(openDffFile);
 		layout->addWidget(loadDffFile);
 		main_layout->addLayout(layout);
+	}
+	{
+		main_layout->addWidget(dff_view);
 	}
 	setLayout(main_layout);
 }
@@ -209,7 +335,11 @@ void ServerWidget::OnSelectDff()
 
 	dffpath->setText(filename);
 
-	// TODO: Analyze dff and display contents
+	FifoData fifo_data;
+	LoadDffData(filename.toLatin1().constData(), fifo_data);
+	fclose(fifo_data.file);
+
+	emit FifoDataChanged(fifo_data);
 }
 
 void ServerWidget::OnLoadDff()
