@@ -1,3 +1,5 @@
+#define ENABLE_CONSOLE 0
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +19,7 @@
 #include "protocol.h"
 #include "BPMemory.h"
 #include "DffFile.h"
+#include "FifoDataFile.h"
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -150,118 +153,103 @@ u8* GetPointer(u32 addr)
 	return NULL;
 }
 
-struct FifoFrameData
-{
-	std::vector<u8> fifoData;
-	u32 fifoStart;
-	u32 fifoEnd;
-
-	// Sorted by position - TODO: Make this a map instead?
-	std::vector<DffMemoryUpdate> memoryUpdates;
-};
-
-#define ENABLE_CONSOLE 0
-
 static u32 tex_addr[8] = {0};
 
-struct FifoData
+void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr)
 {
-	FILE* file;
+	const std::vector<u32>& bpmem = fifo_data.bpmem;
+	const std::vector<u32>& cpmem = fifo_data.cpmem;
+	const std::vector<u32>& xfmem = fifo_data.xfmem;
+	const std::vector<u32>& xfregs = fifo_data.xfregs;
 
-	std::vector<FifoFrameData> frames;
-
-	std::vector<u32> bpmem;
-	std::vector<u32> cpmem;
-	std::vector<u32> xfmem;
-	std::vector<u32> xfregs;
-
-	void ApplyInitialState()
+	for (unsigned int i = 0; i < fifo_data.bpmem.size(); ++i)
 	{
-		for (unsigned int i = 0; i < bpmem.size(); ++i)
+		if ((i == BPMEM_TRIGGER_EFB_COPY
+			|| i == BPMEM_CLEARBBOX1
+			|| i == BPMEM_CLEARBBOX2
+			|| i == BPMEM_SETDRAWDONE
+			|| i == BPMEM_PE_TOKEN_ID // TODO: Sure that we want to skip this one?
+			|| i == BPMEM_PE_TOKEN_INT_ID
+			|| i == BPMEM_LOADTLUT0
+			|| i == BPMEM_LOADTLUT1
+			|| i == BPMEM_TEXINVALIDATE
+			|| i == BPMEM_PRELOAD_MODE
+			|| i == BPMEM_CLEAR_PIXEL_PERF))
+			continue;
+
+		u32 new_value = bpmem[i];
+
+		// Patch texture addresses
+		if ((i >= BPMEM_TX_SETIMAGE3 && i < BPMEM_TX_SETIMAGE3+4) ||
+			(i >= BPMEM_TX_SETIMAGE3_4 && i < BPMEM_TX_SETIMAGE3_4+4))
 		{
-			if ((i == BPMEM_TRIGGER_EFB_COPY
-				|| i == BPMEM_CLEARBBOX1
-				|| i == BPMEM_CLEARBBOX2
-				|| i == BPMEM_SETDRAWDONE
-				|| i == BPMEM_PE_TOKEN_ID // TODO: Sure that we want to skip this one?
-				|| i == BPMEM_PE_TOKEN_INT_ID
-				|| i == BPMEM_LOADTLUT0
-				|| i == BPMEM_LOADTLUT1
-				|| i == BPMEM_TEXINVALIDATE
-				|| i == BPMEM_PRELOAD_MODE
-				|| i == BPMEM_CLEAR_PIXEL_PERF))
-				continue;
+			u32 tempval = le32toh(new_value);
+			TexImage3* img = (TexImage3*)&tempval;
+			u32 addr = img->image_base << 5;
+			u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
+			img->image_base = new_addr >> 5;
+			new_value = h32tole(tempval);
 
-			u32 new_value = bpmem[i];
-
-			// Patch texture addresses
-			if ((i >= BPMEM_TX_SETIMAGE3 && i < BPMEM_TX_SETIMAGE3+4) ||
-				(i >= BPMEM_TX_SETIMAGE3_4 && i < BPMEM_TX_SETIMAGE3_4+4))
+			if (tex_addr)
 			{
-				u32 tempval = le32toh(new_value);
-				TexImage3* img = (TexImage3*)&tempval;
-				u32 addr = img->image_base << 5;
-				u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
-				img->image_base = new_addr >> 5;
-				new_value = h32tole(tempval);
-
 				if (i >= BPMEM_TX_SETIMAGE3 && i < BPMEM_TX_SETIMAGE3+4)
 					tex_addr[i - BPMEM_TX_SETIMAGE3] = new_addr;
 				else
 					tex_addr[4 + i - BPMEM_TX_SETIMAGE3_4] = new_addr;
 			}
-
-#if ENABLE_CONSOLE!=1
-			wgPipe->U8 = 0x61;
-			wgPipe->U32 = (i<<24)|(le32toh(new_value)&0xffffff);
-#endif
 		}
 
 #if ENABLE_CONSOLE!=1
-		#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
-
-		MLoadCPReg(0x30, le32toh(cpmem[0x30]));
-		MLoadCPReg(0x40, le32toh(cpmem[0x40]));
-		MLoadCPReg(0x50, le32toh(cpmem[0x50]));
-		MLoadCPReg(0x60, le32toh(cpmem[0x60]));
-
-		for (int i = 0; i < 8; ++i)
-		{
-			MLoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
-			MLoadCPReg(0x80 + i, le32toh(cpmem[0x80 + i]));
-			MLoadCPReg(0x90 + i, le32toh(cpmem[0x90 + i]));
-		}
-
-		for (int i = 0; i < 16; ++i)
-		{
-			MLoadCPReg(0xa0 + i, le32toh(cpmem[0xa0 + i]));
-			MLoadCPReg(0xb0 + i, le32toh(cpmem[0xb0 + i]));
-		}
-		#undef MLoadCPReg
-
-		for (unsigned int i = 0; i < xfmem.size(); i += 16)
-		{
-			wgPipe->U8 = 0x10;
-			wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
-			for (int k = 0; k < 16; ++k)
-				wgPipe->U32 = le32toh(xfmem[i + k]);
-		}
-
-		for (unsigned int i = 0; i < xfregs.size(); ++i)
-		{
-			wgPipe->U8 = 0x10;
-			wgPipe->U32 = 0x1000 | (i&0x0fff);
-			wgPipe->U32 = le32toh(xfregs[i]);
-		}
-
-		// Flush WGP
-		for (int i = 0; i < 7; ++i)
-			wgPipe->U32 = 0;
-		wgPipe->U16 = 0;
-		wgPipe->U8 = 0;
+		wgPipe->U8 = 0x61;
+		wgPipe->U32 = (i<<24)|(le32toh(new_value)&0xffffff);
 #endif
 	}
-};
+
+#if ENABLE_CONSOLE!=1
+	#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; }
+
+	MLoadCPReg(0x30, le32toh(cpmem[0x30]));
+	MLoadCPReg(0x40, le32toh(cpmem[0x40]));
+	MLoadCPReg(0x50, le32toh(cpmem[0x50]));
+	MLoadCPReg(0x60, le32toh(cpmem[0x60]));
+
+	for (int i = 0; i < 8; ++i)
+	{
+		MLoadCPReg(0x70 + i, le32toh(cpmem[0x70 + i]));
+		MLoadCPReg(0x80 + i, le32toh(cpmem[0x80 + i]));
+		MLoadCPReg(0x90 + i, le32toh(cpmem[0x90 + i]));
+	}
+
+	for (int i = 0; i < 16; ++i)
+	{
+		MLoadCPReg(0xa0 + i, le32toh(cpmem[0xa0 + i]));
+		MLoadCPReg(0xb0 + i, le32toh(cpmem[0xb0 + i]));
+	}
+	#undef MLoadCPReg
+
+	for (unsigned int i = 0; i < xfmem.size(); i += 16)
+	{
+		wgPipe->U8 = 0x10;
+		wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
+		for (int k = 0; k < 16; ++k)
+			wgPipe->U32 = le32toh(xfmem[i + k]);
+	}
+
+	for (unsigned int i = 0; i < xfregs.size(); ++i)
+	{
+		wgPipe->U8 = 0x10;
+		wgPipe->U32 = 0x1000 | (i&0x0fff);
+		wgPipe->U32 = le32toh(xfregs[i]);
+	}
+
+	// Flush WGP
+	for (int i = 0; i < 7; ++i)
+		wgPipe->U32 = 0;
+	wgPipe->U16 = 0;
+	wgPipe->U8 = 0;
+#endif
+}
+
 
 //#define DFF_FILENAME "sd:/dff/4_efbcopies_new.dff"
 //#define DFF_FILENAME "sd:/dff/3_textures_new.dff"
@@ -272,74 +260,6 @@ struct FifoData
 //#define DFF_FILENAME "sd:/dff/rs2_intro.dff"
 //#define DFF_FILENAME "sd:/dff/simpletexture.dff"
 //#define DFF_FILENAME "sd:/dff/fog_adj.dff"
-
-void LoadDffData(FifoData& out)
-{
-	out.file = fopen(DFF_FILENAME, "r");
-	if (!out.file)
-		printf("Failed to open file!\n");
-
-	DffFileHeader header;
-	size_t numread = fread(&header, sizeof(DffFileHeader), 1, out.file);
-	header.FixEndianness();
-
-	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 1)
-	{
-		printf ("file ID or version don't match!\n");
-	}
-	printf ("Got %d frame%s\n", header.frameCount, (header.frameCount == 1) ? "" : "s");
-
-	for (unsigned int i = 0;i < header.frameCount; ++i)
-	{
-		u64 frameOffset = header.frameListOffset + (i * sizeof(DffFrameInfo));
-		DffFrameInfo srcFrame;
-
-		fseek(out.file, frameOffset, SEEK_SET);
-		fread(&srcFrame, sizeof(DffFrameInfo), 1, out.file);
-		srcFrame.FixEndianness();
-
-		out.frames.push_back(FifoFrameData());
-		FifoFrameData& dstFrame = out.frames[i];
-		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
-		dstFrame.fifoData.resize(srcFrame.fifoDataSize-5);
-		fseek(out.file, srcFrame.fifoDataOffset, SEEK_SET);
-		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize-5, 1, out.file);
-
-		u64 memoryUpdatesOffset;
-		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
-		for (unsigned int i = 0;i < srcFrame.numMemoryUpdates; ++i)
-		{
-			u64 updateOffset = srcFrame.memoryUpdatesOffset + (i * sizeof(DffMemoryUpdate));
-			DffMemoryUpdate& srcUpdate = dstFrame.memoryUpdates[i];
-			fseek(out.file, updateOffset, SEEK_SET);
-			fread(&srcUpdate, sizeof(DffMemoryUpdate), 1, out.file);
-			srcUpdate.FixEndianness();
-		}
-	}
-
-	// Save initial state
-	u32 bp_size = header.bpMemSize;
-	out.bpmem.resize(bp_size);
-	fseek(out.file, header.bpMemOffset, SEEK_SET);
-	fread(&out.bpmem[0], bp_size*4, 1, out.file);
-
-	u32 cp_size = header.cpMemSize;
-	out.cpmem.resize(cp_size);
-	fseek(out.file, header.cpMemOffset, SEEK_SET);
-	fread(&out.cpmem[0], cp_size*4, 1, out.file);
-
-	u32 xf_size = header.xfMemSize;
-	out.xfmem.resize(xf_size);
-	fseek(out.file, header.xfMemOffset, SEEK_SET);
-	fread(&out.xfmem[0], xf_size*4, 1, out.file);
-
-	u32 xf_regs_size = header.xfRegsSize;
-	out.xfregs.resize(xf_regs_size);
-	fseek(out.file, header.xfRegsOffset, SEEK_SET);
-	fread(&out.xfregs[0], xf_regs_size*4, 1, out.file);
-
-	// TODO: Should DCFlushRange here?
-}
 
 struct AnalyzedFrameInfo
 {
@@ -687,7 +607,7 @@ int main()
 	ReadStreamedDff(client_socket);
 
 	FifoData fifo_data;
-	LoadDffData(fifo_data);
+	LoadDffData(DFF_FILENAME, fifo_data);
 	printf("Loaded dff data\n");
 
 	FifoDataAnalyzer analyzer;
@@ -719,7 +639,7 @@ int main()
 				}
 			}
 
-			fifo_data.ApplyInitialState();
+			ApplyInitialState(fifo_data, tex_addr);
 		}
 
 		std::vector<u32>::iterator next_cmd_start = cur_analyzed_frame.cmd_starts.begin();
