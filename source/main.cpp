@@ -1,4 +1,4 @@
-#define ENABLE_CONSOLE 0
+#define ENABLE_CONSOLE 1
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -417,6 +417,102 @@ int WaitForConnection()
 	return client_socket;
 }
 
+#define MSG_PEEK 0x02
+
+void ReadCommandEnable(int socket, std::vector<AnalyzedFrameInfo>& analyzed_frames, bool enable)
+{
+	char cmd;
+	u32 frame_idx;
+	u32 object;
+	u32 offset;
+
+	ssize_t numread = net_recv(socket, &cmd, sizeof(cmd), 0);
+	numread = net_recv(socket, &frame_idx, sizeof(frame_idx), 0);
+	numread = net_recv(socket, &object, sizeof(object), 0);
+	numread = net_recv(socket, &offset, sizeof(offset), 0);
+	frame_idx = ntohl(frame_idx);
+	object = ntohl(object);
+	offset = ntohl(offset);
+
+	printf("%s command %d in frame %d;\n", (enable)?"Enabled":"Disabled", offset, frame_idx);
+/*	AnalyzedFrameInfo& frame = analyzed_frames[frame_idx];
+	for (int i = 0; i < frame.cmd_starts.size(); ++i)
+	{
+		if (frame.cmd_starts[i] == offset)
+		{
+			frame.cmd_enabled[i] = enable;
+			printf("%s command %d in frame %d\n", (enable)?"Enabled":"Disabled", i, frame_idx);
+			break;
+		}
+	}*/
+}
+
+
+void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<AnalyzedFrameInfo>& analyzed_frames)
+{
+	fd_set readset;
+	FD_ZERO(&readset);
+//	FD_SET(server_socket, &readset);
+//	if (client_socket != -1)
+		FD_SET(client_socket, &readset);
+//	int maxfd = std::max(client_socket, server_socket);
+	int maxfd = client_socket;
+
+	struct timeval timeout;
+	timeout.tv_sec = 1;
+	timeout.tv_usec = 0;
+
+	// select is not implemented in libogc, so all this won't work...
+	char data[12];
+	int ret = net_select(maxfd+1, &readset, NULL, NULL, &timeout); // TODO: Is this compatible with winsocks?
+	if (ret <= 0)
+	{
+		if (ret < 0)
+			printf("select returned %d\n", ret);
+		return;
+	}
+
+/*	if (FD_ISSET(server_socket, &readset))
+	{
+		int new_socket = net_accept(server_socket, NULL, NULL);
+		if (new_socket < 0)
+		{
+			qDebug() << "accept failed";
+		}
+		else client_socket = new_socket;
+	}*/
+	if (FD_ISSET(client_socket, &readset))
+	{
+		printf("client seems to be set...\n");
+		char cmd;
+		ssize_t numread = net_recv(client_socket, &cmd, 1, MSG_PEEK);
+		printf("Peeked command %d\n", cmd);
+		switch (cmd)
+		{
+			case CMD_HANDSHAKE:
+				if (RET_SUCCESS == ReadHandshake(client_socket))
+					printf("Successfully exchanged handshake token!\n");
+				else
+					printf("Failed to exchange handshake token!\n");
+
+				// TODO: should probably write a handshake in return, but ... I'm lazy
+				break;
+
+			case CMD_STREAM_DFF:
+				//ReadStreamedDff(client_socket);
+				break;
+
+			case CMD_ENABLE_COMMAND:
+			case CMD_DISABLE_COMMAND:
+				ReadCommandEnable(client_socket, analyzed_frames, (cmd == CMD_ENABLE_COMMAND) ? true : false);
+				break;
+
+			default:;
+				printf("Received unknown command: %d\n", cmd);
+		}
+	}
+}
+
 int main()
 {
 	Init();
@@ -447,6 +543,8 @@ int main()
 	int cur_frame = first_frame;
 	while (processing)
 	{
+		CheckForNetworkEvents(-1, client_socket, analyzed_frames);
+
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
 		if (cur_frame == 0) // TODO: Check for first_frame instead and apply previous state changes
@@ -471,7 +569,7 @@ int main()
 		u32 last_pos = 0;
 		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
 		{
-			if ((i % 100)==0)
+			if ((i % 500)==0)
 				printf("Processing fifo command %d of %d!\n", i, cur_frame_data.fifoData.size());
 
 			const FifoFrameData &frame = fifo_data.frames[cur_frame];
@@ -508,8 +606,10 @@ int main()
 						img->image_base = new_addr >> 5;
 						u32 new_value = /*h32tobe*/(tempval);
 
+#if ENABLE_CONSOLE!=1
 						wgPipe->U8 = 0x61;
 						wgPipe->U32 = ((u32)cur_frame_data.fifoData[i+1]<<24)|(/*be32toh*/(new_value)&0xffffff);
+#endif
 
 						i += 4;
 						skip_stuff = true;
@@ -555,8 +655,10 @@ int main()
 							u32 new_value = /*h32tobe*/((BPMEM_EFB_ADDR<<24) | (new_addr >> 5));
 
 							// Update target address
+#if ENABLE_CONSOLE!=1
 							wgPipe->U8 = 0x61;
 							wgPipe->U32 = (BPMEM_EFB_ADDR<<24)|(/*be32toh*/(new_value)&0xffffff);
+#endif
 
 							// Gotta fix texture offsets if memory map layout changed
 							if (update_textures)
@@ -575,11 +677,13 @@ int main()
 					}
 					else
 					{
+#if ENABLE_CONSOLE!=1
 						wgPipe->U8 = 0x61;
 						wgPipe->U8 = cur_frame_data.fifoData[i+1];
 						wgPipe->U8 = cur_frame_data.fifoData[i+2];
 						wgPipe->U8 = cur_frame_data.fifoData[i+3];
 						wgPipe->U8 = cur_frame_data.fifoData[i+4];
+#endif
 
 						i += 4;
 						skip_stuff = true;
@@ -592,9 +696,11 @@ int main()
 					{
 						u32 old_addr = *(u32*)&cur_frame_data.fifoData[i+2]; // TODO: Endiannes (only works on Wii)
 						u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(old_addr));
+#if ENABLE_CONSOLE!=1
 						wgPipe->U8 = GX_LOAD_CP_REG;
 						wgPipe->U8 = cur_frame_data.fifoData[i+1];
 						wgPipe->U32 = new_addr;
+#endif
 						skip_stuff = true;
 						i += 5;
 					}
@@ -609,8 +715,10 @@ int main()
 					u32 cmd2 = *(u32*)&cur_frame_data.fifoData[i+1]; // TODO: Endianness (only works on Wii)
 					u8 streamSize = ((cmd2 >> 16) & 15) + 1;
 
+#if ENABLE_CONSOLE!=1
 					wgPipe->U8 = cur_frame_data.fifoData[i];
 					wgPipe->U32 = cmd2;
+#endif
 					for (int byte = 0; byte < streamSize * 4; ++byte)
 						wgPipe->U8 = cur_frame_data.fifoData[i+5+byte];
 
@@ -622,12 +730,13 @@ int main()
 						cur_frame_data.fifoData[i] == GX_LOAD_INDX_C ||
 						cur_frame_data.fifoData[i] == GX_LOAD_INDX_D)
 				{
+#if ENABLE_CONSOLE!=1
 					wgPipe->U8 = cur_frame_data.fifoData[i];
 					wgPipe->U8 = cur_frame_data.fifoData[i+1];
 					wgPipe->U8 = cur_frame_data.fifoData[i+2];
 					wgPipe->U8 = cur_frame_data.fifoData[i+3];
 					wgPipe->U8 = cur_frame_data.fifoData[i+4];
-
+#endif
 					i += 4;
 					skip_stuff = true;
 				}
@@ -638,10 +747,12 @@ int main()
 
 					u16 streamSize = *(u16*)&cur_frame_data.fifoData[i+1]; // TODO: Endianness (only works on Wii)
 
+#if ENABLE_CONSOLE!=1
 					wgPipe->U8 = cur_frame_data.fifoData[i];
 					wgPipe->U16 = streamSize;
 					for (int byte = 0; byte < streamSize * vertexSize; ++byte)
 						wgPipe->U8 = cur_frame_data.fifoData[i+3+byte];
+#endif
 
 					i += 2 + streamSize * vertexSize;
 					skip_stuff = true;
@@ -702,7 +813,7 @@ int main()
 		if (WPAD_ButtonsDown(0) & WPAD_BUTTON_HOME)
 		{
 			printf("\n");
-			for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
+/*			for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
 			{
 				printf("%02x", fifo_data.frames[0].fifoData[i]);
 				if (i == fifo_data.frames[0].fifoData.size()-5) printf("_");
@@ -710,7 +821,7 @@ int main()
 //				if ((i % 16) == 15) printf("\n");
 				if ((i % 4) == 3) printf(" ");
 				if ((i % 24) == 23) printf("\n");
-			}
+			}*/
 			fclose(fifo_data.file);
 			exit(0);
 		}

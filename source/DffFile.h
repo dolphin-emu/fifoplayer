@@ -3,6 +3,12 @@
 
 #include "CommonTypes.h"
 
+#ifdef HAVE_ENDIAN_H
+#include <endian.h>
+#else // asumming libogc
+#include <gctypes.h>
+#endif
+
 #if BYTE_ORDER==BIG_ENDIAN
 static uint64_t le64toh(uint64_t val)
 {
@@ -40,8 +46,7 @@ static uint16_t be16toh(uint16_t val)
 	return val;
 }
 #elif BYTE_ORDER==LITTLE_ENDIAN
-// endian.h takes care of defining these...
-#include <endian.h>
+// endian.h should have taken care of defining these...
 #endif
 
 
