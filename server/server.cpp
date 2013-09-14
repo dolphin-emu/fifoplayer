@@ -66,53 +66,8 @@ void DffClient::OnConnected()
 	WriteHandshake(socket);
 }
 
-// Dummy code used for testing
-// This should actually be running on the Wii
-// inside native fifo player and using /dev/net/ip/top
-DummyServer::DummyServer(QObject* parent) : QObject(parent), server_socket(-1), client_socket(-1)
-{
-}
-
-void DummyServer::StartListen()
-{
-	int addrlen;
-	struct sockaddr_in my_name, peer_name;
-	int status;
-
-	server_socket = socket(AF_INET, SOCK_STREAM, 0);
-	if (server_socket == -1)
-	{
-		qDebug() << "Failed to create server socket";
-	}
-	int yes = 1;
-	setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-
-	my_name.sin_family = AF_INET;
-	my_name.sin_addr.s_addr = INADDR_ANY;
-	my_name.sin_port = htons(DFF_CONN_PORT);
-
-	status = bind(server_socket, (struct sockaddr*)&my_name, sizeof(my_name));
-	if (status == -1)
-	{
-		qDebug() << "Failed to bind server socket";
-	}
-
-	status = listen(server_socket, 5); // TODO: Change second parameter..
-	if (status == -1)
-	{
-		qDebug() << "Failed to listen on server socket";
-	}
-
-	// NOTE: We should periodically check for incoming data instead of spinlocking here...
-	// However, this seems buggy. If I enable the code, nothing works anymore.
-	// Once this runs in the fifo player it won't matter anyway, so I'll just leave it commented out
-/*	QTimer* timer = new QTimer(this);
-	connect(timer, SIGNAL(timeout()), this, SLOT(CheckIncomingData()));
-	timer->setSingleShot(false);
-	timer->start(1000);*/
-	CheckIncomingData();
-}
-
+// Kept for reference
+#if 0
 void DummyServer::CheckIncomingData()
 {
 while (true) {
@@ -172,17 +127,15 @@ begin:
 	}
 }
 }
+#endif
 
 ServerWidget::ServerWidget() : QWidget()
 {
-	DummyServer* server = new DummyServer(this);
 	client = new DffClient(this);
 
 	hostname = new QLineEdit("127.0.0.1");
 	QPushButton* try_connect = new QPushButton(tr("Connect"));
-	QPushButton* start_listen = new QPushButton(tr("Dummy Server"));
 
-	connect(start_listen, SIGNAL(clicked()), server, SLOT(StartListen()));
 	connect(try_connect, SIGNAL(clicked()), this, SLOT(OnTryConnect()));
 
 	// TODO: Change the lineedit text to be a default text?
@@ -199,7 +152,6 @@ ServerWidget::ServerWidget() : QWidget()
 		QHBoxLayout* layout = new QHBoxLayout;
 		layout->addWidget(hostname);
 		layout->addWidget(try_connect);
-		layout->addWidget(start_listen);
 		main_layout->addLayout(layout);
 	}
 	{

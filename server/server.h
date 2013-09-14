@@ -22,22 +22,6 @@ signals:
 private:
 };
 
-class DummyServer : public QObject
-{
-	Q_OBJECT
-
-public:
-	DummyServer(QObject* parent = NULL);
-
-public slots:
-	void StartListen();
-	void CheckIncomingData();
-
-private:
-	int server_socket;
-	int client_socket;
-};
-
 class ServerWidget : public QWidget
 {
 	Q_OBJECT
