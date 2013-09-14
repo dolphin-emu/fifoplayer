@@ -488,9 +488,13 @@ void LoadDffData(FifoData& out)
 
 struct AnalyzedFrameInfo
 {
-	std::vector<u32> object_starts;
-	std::vector<u32> object_ends;
-	std::vector<u32> cmd_starts;
+	std::vector<u32> object_starts; // Address of first command in a polygon rendering series
+	std::vector<u32> object_ends; // Address of first command after rendering polygons
+
+	// These two should be in a single vector, actually...
+	std::vector<u32> cmd_starts; // Address of each command of the frame
+	std::vector<bool> cmd_enabled; // Whether to process this command or not
+
 //	std::vector<MemoryUpdate> memory_updates;
 };
 
@@ -543,6 +547,7 @@ public:
 						dst_frame.object_ends.push_back(cmd_start);
 				}
 				dst_frame.cmd_starts.push_back(cmd_start);
+				dst_frame.cmd_enabled.push_back(true);
 				cmd_start += cmd_size;
 			}
 			if (dst_frame.object_ends.size() < dst_frame.object_starts.size())
@@ -758,7 +763,8 @@ int main()
 
 			bool skip_stuff = false;
 			static u32 efbcopy_target = 0;
-			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
+			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i &&
+				cur_analyzed_frame.cmd_enabled[next_cmd_start-cur_analyzed_frame.cmd_starts.begin()])
 			{
 				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
 				{
