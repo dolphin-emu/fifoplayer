@@ -23,24 +23,64 @@
 
 int* client_socket = NULL; // TODO: Remove this
 
+class NetworkQueue
+{
+public:
+	NetworkQueue(int socket) : socket(socket), cur_pos_(0) {}
+
+	void PushCommand(u8* data, u32 size)
+	{
+		// Flush existing data if new command doesn't fit
+		if (cur_pos_ + size > size_)
+			Flush();
+
+		// TODO: Assert that size < size_!
+		PushData(data, size);
+	}
+	void Flush()
+	{
+		send(socket, data_, cur_pos_, 0);
+		cur_pos_ = 0;
+	}
+
+private:
+	// Blindly push data without checking for overflows etc
+	void PushData(u8* data, u32 size)
+	{
+		memcpy(data_ + cur_pos_, data, size);
+		cur_pos_ += size;
+	}
+
+	static const int size_ = 65536;
+
+	int socket;
+	u8 data_[size_];
+	int cur_pos_;
+};
+
+NetworkQueue* netqueue = NULL;
+
 void WriteHandshake(int socket)
 {
-	char data[5];
+	u8 data[5];
 	data[0] = CMD_HANDSHAKE;
 	*(uint32_t*)&data[1] = htonl(handshake);
-	send(socket, data, sizeof(data), 0);
+	netqueue->PushCommand(data, sizeof(data));
 }
 
 void WriteSetCommandEnabled(int socket, u32 frame, u32 object, u32 offset, int enable)
 {
-	char cmd = (enable) ? CMD_ENABLE_COMMAND : CMD_DISABLE_COMMAND;
+	u8 cmd = (enable) ? CMD_ENABLE_COMMAND : CMD_DISABLE_COMMAND;
 	u32 frame_n = htonl(frame);
 	u32 object_n = htonl(object);
 	u32 offset_n = htonl(offset);
-	send(socket, &cmd, sizeof(cmd), 0);
-	send(socket, &frame_n, sizeof(frame_n), 0);
-	send(socket, &object_n, sizeof(object_n), 0);
-	send(socket, &offset_n, sizeof(offset_n), 0);
+
+	u8 data[13];
+	data[0] = cmd;
+	*(u32*)&data[1] = frame_n;
+	*(u32*)&data[5] = object_n;
+	*(u32*)&data[9] = offset_n;
+	netqueue->PushCommand(data, sizeof(data));
 }
 
 DffClient::DffClient(QObject* parent) : QObject(parent)
@@ -81,7 +121,14 @@ void DffClient::OnConnected()
 {
 	qDebug() << "Client connected successfully";
 
+	if (netqueue)
+	{
+		netqueue->Flush();
+		delete netqueue;
+	}
+	netqueue = new NetworkQueue(socket);
 	WriteHandshake(socket);
+	netqueue->Flush();
 }
 
 // Kept for reference
@@ -355,6 +402,7 @@ void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable)
 		u32 frame_idx = index.data(DffModel::UserRole_FrameIndex).toInt();
 		WriteSetCommandEnabled(*client_socket, frame_idx, object_idx, index.data(DffModel::UserRole_CmdStart).toInt(), static_cast<int>(enable));
 	}
+	netqueue->Flush();
 
 	emit EnableEntry(index, enable);
 	// TODO: Should enable parent item if enable=true
@@ -425,13 +473,13 @@ ServerWidget::ServerWidget() : QWidget()
 
 void WriteStreamDff(int socket, QString filename)
 {
-	char cmd = CMD_STREAM_DFF;
-	send(socket, &cmd, 1, 0);
+	u8 cmd = CMD_STREAM_DFF;
+	netqueue->PushCommand(&cmd, sizeof(cmd));
 
 	QFile file(filename);
 	int32_t size = file.size();
 	int32_t n_size = htonl(size);
-	send(socket, &n_size, 4, 0);
+	netqueue->PushCommand((u8*)&n_size, sizeof(n_size));
 	qDebug() << "About to send " << size << " bytes of dff data!" << n_size;
 
 	file.open(QIODevice::ReadOnly);
@@ -439,22 +487,13 @@ void WriteStreamDff(int socket, QString filename)
 
 	for (; size > 0; size -= dff_stream_chunk_size)
 	{
-		char data[dff_stream_chunk_size];
-		stream.readRawData(data, std::min(size,dff_stream_chunk_size));
-		int ret = send(socket, data, std::min(size,dff_stream_chunk_size), 0);
-		if (ret == -1)
-		{
-			perror("send");
-		}
-		else if (ret != std::min(size,dff_stream_chunk_size))
-		{
-			qDebug() << "Only printed " << ret << " bytes of data...";
-		}
-		else
-		{
-			qDebug() << size << " bytes left to be sent!";
-		}
+		u8 data[dff_stream_chunk_size];
+		stream.readRawData((char*)data, std::min(size,dff_stream_chunk_size));
+		netqueue->PushCommand(data, std::min(size,dff_stream_chunk_size));
+
+		qDebug() << size << " bytes left to be sent!";
 	}
+	netqueue->Flush();
 
 	file.close();
 }
