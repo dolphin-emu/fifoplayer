@@ -1,4 +1,4 @@
-#define ENABLE_CONSOLE 1
+#define ENABLE_CONSOLE 0
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -367,13 +367,13 @@ void ReadStreamedDff(int socket)
 	fclose(file);
 }
 
-int WaitForConnection()
+int WaitForConnection(int& server_socket)
 {
 	int addrlen;
 	struct sockaddr_in my_name, peer_name;
 	int status;
 
-	int server_socket = net_socket(AF_INET, SOCK_STREAM, 0);
+	server_socket = net_socket(AF_INET, SOCK_STREAM, 0);
 	if (server_socket == -1)
 	{
 		printf("Failed to create server socket\n");
@@ -426,30 +426,34 @@ void ReadCommandEnable(int socket, std::vector<AnalyzedFrameInfo>& analyzed_fram
 	u32 object;
 	u32 offset;
 
-	ssize_t numread = net_recv(socket, &cmd, sizeof(cmd), 0);
-	numread = net_recv(socket, &frame_idx, sizeof(frame_idx), 0);
-	numread = net_recv(socket, &object, sizeof(object), 0);
-	numread = net_recv(socket, &offset, sizeof(offset), 0);
-	frame_idx = ntohl(frame_idx);
-	object = ntohl(object);
-	offset = ntohl(offset);
+	char data[13];
+
+	ssize_t numread = 0;
+	while (numread != 13)
+		numread += net_recv(socket, data+numread, sizeof(data)-numread, 0);
+
+	cmd = data[0];
+	frame_idx = ntohl(*(u32*)&data[1]);
+	object = ntohl(*(u32*)&data[5]);
+	offset = ntohl(*(u32*)&data[9]);
 
 	printf("%s command %d in frame %d;\n", (enable)?"Enabled":"Disabled", offset, frame_idx);
-/*	AnalyzedFrameInfo& frame = analyzed_frames[frame_idx];
+	AnalyzedFrameInfo& frame = analyzed_frames[frame_idx];
 	for (int i = 0; i < frame.cmd_starts.size(); ++i)
 	{
 		if (frame.cmd_starts[i] == offset)
 		{
 			frame.cmd_enabled[i] = enable;
-			printf("%s command %d in frame %d\n", (enable)?"Enabled":"Disabled", i, frame_idx);
+			printf("%s command %d in frame %d, %d\n", (enable)?"Enabled":"Disabled", i, frame_idx, frame.cmd_enabled.size());
 			break;
 		}
-	}*/
+	}
 }
 
 
 void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<AnalyzedFrameInfo>& analyzed_frames)
 {
+#if 0
 	fd_set readset;
 	FD_ZERO(&readset);
 //	FD_SET(server_socket, &readset);
@@ -462,16 +466,15 @@ void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<Ana
 	timeout.tv_sec = 1;
 	timeout.tv_usec = 0;
 
-	// select is not implemented in libogc, so all this won't work...
 	char data[12];
 	int ret = net_select(maxfd+1, &readset, NULL, NULL, &timeout); // TODO: Is this compatible with winsocks?
+
 	if (ret <= 0)
 	{
 		if (ret < 0)
 			printf("select returned %d\n", ret);
 		return;
 	}
-
 /*	if (FD_ISSET(server_socket, &readset))
 	{
 		int new_socket = net_accept(server_socket, NULL, NULL);
@@ -481,9 +484,30 @@ void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<Ana
 		}
 		else client_socket = new_socket;
 	}*/
-	if (FD_ISSET(client_socket, &readset))
-	{
-		printf("client seems to be set...\n");
+#endif
+
+	struct pollsd fds[2];
+	memset(fds, 0, sizeof(fds));
+//	fds[0].socket = server_socket;
+	fds[0].socket = client_socket;
+	fds[0].events = POLLIN;
+	int nfds = 1;
+	int timeout = 1; // TODO: Set to zero
+
+	int ret;
+	do {
+		int ret = net_poll(fds, nfds, timeout);
+		if (ret < 0)
+		{
+			printf("poll returned error %d\n", ret);
+			return;
+		}
+		if (ret == 0)
+		{
+			// timeout
+			return;
+		}
+
 		char cmd;
 		ssize_t numread = net_recv(client_socket, &cmd, 1, MSG_PEEK);
 		printf("Peeked command %d\n", cmd);
@@ -507,10 +531,13 @@ void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<Ana
 				ReadCommandEnable(client_socket, analyzed_frames, (cmd == CMD_ENABLE_COMMAND) ? true : false);
 				break;
 
-			default:;
+			default:
 				printf("Received unknown command: %d\n", cmd);
+				break;
 		}
-	}
+		printf("Looping again\n");
+		timeout = 100;
+	} while (ret > 0);
 }
 
 int main()
@@ -518,7 +545,8 @@ int main()
 	Init();
 
 	printf("Init done!\n");
-	int client_socket = WaitForConnection();
+	int server_socket;
+	int client_socket = WaitForConnection(server_socket);
 	if (RET_SUCCESS == ReadHandshake(client_socket))
 		printf("Successfully exchanged handshake token!\n");
 	else
@@ -543,7 +571,7 @@ int main()
 	int cur_frame = first_frame;
 	while (processing)
 	{
-		CheckForNetworkEvents(-1, client_socket, analyzed_frames);
+		CheckForNetworkEvents(server_socket, client_socket, analyzed_frames);
 
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
@@ -569,8 +597,8 @@ int main()
 		u32 last_pos = 0;
 		for (unsigned int i = 0; i < cur_frame_data.fifoData.size(); ++i)
 		{
-			if ((i % 500)==0)
-				printf("Processing fifo command %d of %d!\n", i, cur_frame_data.fifoData.size());
+//			if ((i % 500)==0)
+//				printf("Processing fifo command %d of %d!\n", i, cur_frame_data.fifoData.size());
 
 			const FifoFrameData &frame = fifo_data.frames[cur_frame];
 			for (unsigned int update = 0; update < frame.memoryUpdates.size(); ++update)

@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include <QFile>
 #include <QTreeView>
+#include <QSignalMapper>
 #include "server.h"
 #include <sys/socket.h>
 #include <stdint.h>
@@ -173,9 +174,10 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 	if (!index.isValid())
 		return QVariant();
 
+	TreeItem* item = (TreeItem*)index.internalPointer();
+
 	if (role == Qt::DisplayRole)
 	{
-		TreeItem* item = (TreeItem*)index.internalPointer();
 		if (item->type == IDX_FRAME)
 			return QVariant(QString("Frame %1").arg(index.row()));
 		else if (item->type == IDX_OBJECT)
@@ -185,11 +187,54 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 	}
 	else if (role == Qt::BackgroundRole)
 	{
-		TreeItem* item = (TreeItem*)index.internalPointer();
 		if (!item->enabled)
 			return QVariant(QBrush(Qt::gray));
 		else
 			return QVariant();
+	}
+	else if (role == UserRole_IsEnabled)
+	{
+		return QVariant(item->enabled);
+	}
+	else if (role == UserRole_Type)
+	{
+		return QVariant(item->type);
+	}
+	else if (role == UserRole_CommandIndex)
+	{
+		if (item->type == IDX_COMMAND)
+			return QVariant(item->index);
+		else
+			return QVariant(-1);
+	}
+	else if (role == UserRole_ObjectIndex)
+	{
+		if (item->type == IDX_OBJECT)
+			return QVariant(item->index);
+		else if (item->type == IDX_COMMAND)
+			return QVariant(item->parent->index);
+		else
+			return QVariant(-1);
+	}
+	else if (role == UserRole_FrameIndex)
+	{
+		if (item->type == IDX_FRAME)
+			return QVariant(item->index);
+		else if (item->type == IDX_OBJECT)
+			return QVariant(item->parent->index);
+		else if (item->type == IDX_COMMAND)
+			return QVariant(item->parent->parent->index);
+		else
+			return QVariant(-1);
+	}
+	else if (role == UserRole_CmdStart)
+	{
+		if (item->type != IDX_COMMAND)
+			return QVariant(-1);
+
+		u32 object_idx = item->parent->index;
+		u32 frame_idx = item->parent->parent->index;
+		return QVariant(analyzed_frames[frame_idx].objects[object_idx].cmd_starts[item->index]);
 	}
 	else
 		return QVariant();
@@ -270,43 +315,49 @@ void DffModel::OnFifoDataChanged(FifoData& fifo_data)
 	endResetModel();
 }
 
-void DffModel::OnSelectionChanged(const QItemSelection& selected)
+
+void DffModel::SetEntryEnabled(const QModelIndex& index, bool enable)
 {
-	selection = selected.indexes();
+	TreeItem* item = (TreeItem*)index.internalPointer();
+	item->enabled = enable;
+	emit dataChanged(index, index);
+	qDebug() << "Changed item";
 }
 
-
-void DffModel::OnEnableSelected()
+DffView::DffView(QWidget* parent) : QTreeView(parent)
 {
-	SetSelectionEnabled(true);
+	setSelectionMode(QAbstractItemView::ExtendedSelection);
 }
 
-void DffModel::OnDisableSelected()
+void DffView::OnEnableSelection(int enable)
 {
-	SetSelectionEnabled(false);
+	QModelIndexList indexes = selectionModel()->selectedIndexes();
+	bool benable = (enable == 0) ? false : true;
+
+	for (QModelIndexList::iterator it = indexes.begin(); it != indexes.end(); ++it)
+		EnableIndexRecursively(*it, benable);
 }
 
-void DffModel::SetSelectionEnabled(bool enable)
+void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable)
 {
-	// TODO: It seems like multi-selection doesn't work, yet...
-	for (QModelIndexList::iterator index = selection.begin(); index != selection.end(); ++index)
+	if (index.data(DffModel::UserRole_Type).toInt() != DffModel::IDX_COMMAND)
 	{
-		TreeItem* item = (TreeItem*)index->internalPointer();
+		for (int i = 0; i < model()->rowCount(index); ++i)
+			EnableIndexRecursively(index.child(i, 0), enable);
 
-		if (item->type != IDX_COMMAND)
-			continue;
-
-		if (enable != item->enabled)
-		{
-			u32 object_idx = item->parent->index;
-			u32 frame_idx = item->parent->parent->index;
-			WriteSetCommandEnabled(*client_socket, frame_idx, object_idx, analyzed_frames[frame_idx].objects[object_idx].cmd_starts[item->index], enable);
-		}
-
-		item->enabled = enable;
-		emit dataChanged(*index, *index);
-		qDebug() << "Changed item";
+		return;
 	}
+
+	// Notify server on state change
+	if (enable != index.data(DffModel::UserRole_IsEnabled).toBool())
+	{
+		u32 object_idx = index.data(DffModel::UserRole_ObjectIndex).toInt();
+		u32 frame_idx = index.data(DffModel::UserRole_FrameIndex).toInt();
+		WriteSetCommandEnabled(*client_socket, frame_idx, object_idx, index.data(DffModel::UserRole_CmdStart).toInt(), static_cast<int>(enable));
+	}
+
+	emit EnableEntry(index, enable);
+	// TODO: Should enable parent item if enable=true
 }
 
 
@@ -328,19 +379,22 @@ ServerWidget::ServerWidget() : QWidget()
 	connect(openDffFile, SIGNAL(clicked()), this, SLOT(OnSelectDff()));
 	connect(loadDffFile, SIGNAL(clicked()), this, SLOT(OnLoadDff()));
 
-	QTreeView* dff_view = new QTreeView;
+	DffView* dff_view = new DffView(this);
 	DffModel* dff_model = new DffModel(this);
 	dff_view->setModel(dff_model);
-	dff_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
 
 	connect(this, SIGNAL(FifoDataChanged(FifoData&)), dff_model, SLOT(OnFifoDataChanged(FifoData&)));
-	connect(dff_view->selectionModel(), SIGNAL(selectionChanged(const QItemSelection&, const QItemSelection&)), dff_model, SLOT(OnSelectionChanged(const QItemSelection&)));
 
 	QPushButton* enable_command_button = new QPushButton(tr("Enable"));
 	QPushButton* disable_command_button = new QPushButton(tr("Disable"));
 
-	connect(enable_command_button, SIGNAL(clicked()), dff_model, SLOT(OnEnableSelected()));
-	connect(disable_command_button, SIGNAL(clicked()), dff_model, SLOT(OnDisableSelected()));
+	QSignalMapper* dff_view_mapper = new QSignalMapper(this);
+	connect(enable_command_button, SIGNAL(clicked()), dff_view_mapper, SLOT(map()));
+	connect(disable_command_button, SIGNAL(clicked()), dff_view_mapper, SLOT(map()));
+	dff_view_mapper->setMapping(enable_command_button, 1);
+	dff_view_mapper->setMapping(disable_command_button, 0);
+	connect(dff_view_mapper, SIGNAL(mapped(int)), dff_view, SLOT(OnEnableSelection(int)));
+	connect(dff_view, SIGNAL(EnableEntry(const QModelIndex&,bool)), dff_model, SLOT(SetEntryEnabled(const QModelIndex&,bool)));
 
 	QVBoxLayout* main_layout = new QVBoxLayout;
 	{

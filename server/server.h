@@ -1,5 +1,6 @@
 #include <QWidget>
 #include <QAbstractItemModel>
+#include <QTreeView>
 
 #include <vector>
 
@@ -11,14 +12,44 @@ class QItemSelection;
 #include "../source/FifoAnalyzer.h"
 class FifoData;
 class TreeItem;
+
+
+class DffView : public QTreeView
+{
+	Q_OBJECT
+
+public:
+	DffView(QWidget* parent);
+
+public slots:
+	void OnEnableSelection(int enable);
+
+signals:
+	void EnableEntry(const QModelIndex& index, bool enable);
+
+private:
+	// Enables/Disables the command and all of its children
+	void EnableIndexRecursively(const QModelIndex& index, bool enable);
+};
+
 class DffModel : public QAbstractItemModel
 {
 	Q_OBJECT
 
+public:
 	enum {
 		IDX_FRAME,
 		IDX_OBJECT,
 		IDX_COMMAND,
+	};
+
+	enum {
+		UserRole_IsEnabled = Qt::UserRole,
+		UserRole_Type,
+		UserRole_FrameIndex,
+		UserRole_ObjectIndex,
+		UserRole_CommandIndex,
+		UserRole_CmdStart,
 	};
 
 public:
@@ -30,20 +61,14 @@ public:
 	int columnCount(const QModelIndex& parent = QModelIndex()) const;
 	QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const;
 
-	void SetSelectionEnabled(bool enable);
-
 public slots:
 	void OnFifoDataChanged(FifoData& fifo_data);
 
-	void OnEnableSelected();
-	void OnDisableSelected();
-
-	void OnSelectionChanged(const QItemSelection& selected);
+	void SetEntryEnabled(const QModelIndex& index, bool enable);
 
 private:
 	std::vector<AnalyzedFrameInfo> analyzed_frames;
 	TreeItem* root_item;
-	QModelIndexList selection;
 };
 
 class DffClient : public QObject
