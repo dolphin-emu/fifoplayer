@@ -305,11 +305,11 @@ void Init()
 
 int ReadHandshake(int socket)
 {
-	char data[5];
+	char data[4];
 	net_recv(socket, data, sizeof(data), 0);
-	uint32_t received_handshake = ntohl(*(uint32_t*)&data[1]);
+	uint32_t received_handshake = ntohl(*(uint32_t*)&data[0]);
 
-	if (data[0] != CMD_HANDSHAKE || received_handshake != handshake)
+	if (received_handshake != handshake)
 		return RET_FAIL;
 
 	return RET_SUCCESS;
@@ -331,9 +331,6 @@ bool CheckIfHomePressed()
 
 void ReadStreamedDff(int socket)
 {
-	char cmd = CMD_STREAM_DFF;
-	net_recv(socket, &cmd, 1, 0);
-
 	int32_t n_size;
 	net_recv(socket, &n_size, 4, 0);
 	int32_t size = ntohl(n_size);
@@ -426,16 +423,15 @@ void ReadCommandEnable(int socket, std::vector<AnalyzedFrameInfo>& analyzed_fram
 	u32 object;
 	u32 offset;
 
-	char data[13];
+	char data[12];
 
 	ssize_t numread = 0;
-	while (numread != 13)
+	while (numread != sizeof(data))
 		numread += net_recv(socket, data+numread, sizeof(data)-numread, 0);
 
-	cmd = data[0];
-	frame_idx = ntohl(*(u32*)&data[1]);
-	object = ntohl(*(u32*)&data[5]);
-	offset = ntohl(*(u32*)&data[9]);
+	frame_idx = ntohl(*(u32*)&data[0]);
+	object = ntohl(*(u32*)&data[4]);
+	offset = ntohl(*(u32*)&data[8]);
 
 	printf("%s command %d in frame %d;\n", (enable)?"Enabled":"Disabled", offset, frame_idx);
 	AnalyzedFrameInfo& frame = analyzed_frames[frame_idx];
@@ -496,7 +492,7 @@ void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<Ana
 
 	int ret;
 	do {
-		int ret = net_poll(fds, nfds, timeout);
+		ret = net_poll(fds, nfds, timeout);
 		if (ret < 0)
 		{
 			printf("poll returned error %d\n", ret);
@@ -504,12 +500,13 @@ void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<Ana
 		}
 		if (ret == 0)
 		{
+			printf("timeout :(\n");
 			// timeout
 			return;
 		}
 
 		char cmd;
-		ssize_t numread = net_recv(client_socket, &cmd, 1, MSG_PEEK);
+		ssize_t numread = net_recv(client_socket, &cmd, 1, 0);
 		printf("Peeked command %d\n", cmd);
 		switch (cmd)
 		{
@@ -547,11 +544,14 @@ int main()
 	printf("Init done!\n");
 	int server_socket;
 	int client_socket = WaitForConnection(server_socket);
+	u8 dummy;
+	net_recv(client_socket, &dummy, 1, 0);
 	if (RET_SUCCESS == ReadHandshake(client_socket))
 		printf("Successfully exchanged handshake token!\n");
 	else
 		printf("Failed to exchanged handshake token!\n");
 
+	net_recv(client_socket, &dummy, 1, 0);
 	ReadStreamedDff(client_socket);
 
 	FifoData fifo_data;
@@ -572,6 +572,7 @@ int main()
 	while (processing)
 	{
 		CheckForNetworkEvents(server_socket, client_socket, analyzed_frames);
+	printf("Done with that one...\n");
 
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
@@ -618,9 +619,16 @@ int main()
 
 			bool skip_stuff = false;
 			static u32 efbcopy_target = 0;
-			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i &&
-				cur_analyzed_frame.cmd_enabled[next_cmd_start-cur_analyzed_frame.cmd_starts.begin()])
+
+			if (next_cmd_start != cur_analyzed_frame.cmd_starts.end() && *next_cmd_start == i)
 			{
+				if (!cur_analyzed_frame.cmd_enabled[next_cmd_start-cur_analyzed_frame.cmd_starts.begin()])
+				{
+					i = *next_cmd_start - 1;
+					++next_cmd_start;
+					continue;
+				}
+
 				if (cur_frame_data.fifoData[i] == 0x61) // load BP reg
 				{
 					// Patch texture addresses
