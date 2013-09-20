@@ -180,10 +180,11 @@ static u32 CalculateVertexSize(int vatIndex, const CPMemory &cpMem)
 
 struct AnalyzedObject
 {
-	AnalyzedObject(u32 start, u32 end) : start(start), end(end) {}
+	AnalyzedObject(u32 start, u32 end, u32 last_cmd_byte) : start(start), end(end), last_cmd_byte(last_cmd_byte) {}
 
 	u32 start; // Address of first command in a polygon rendering series
-	u32 end;  // Address of first command after rendering polygons
+	u32 end;  // Address of first command after rendering polygons (commands can still be after this!)
+	u32 last_cmd_byte;  // Address of last command byte
 
 	std::vector<u32> cmd_starts;
 	std::vector<bool> cmd_enabled;
@@ -192,10 +193,6 @@ struct AnalyzedObject
 struct AnalyzedFrameInfo
 {
 	std::vector<AnalyzedObject> objects;
-
-	// TODO: These should be replaced in favor of the members in AnalyzedObject
-	std::vector<u32> cmd_starts; // Address of each command of the frame
-	std::vector<bool> cmd_enabled; // Whether to process this command or not
 
 //	std::vector<MemoryUpdate> memory_updates;
 };
@@ -227,9 +224,10 @@ public:
 		{
 			FifoFrameData& src_frame = data.frames[frame_idx];
 			AnalyzedFrameInfo& dst_frame = frame_info[frame_idx];
-			AnalyzedObject* cur_object = NULL;
 
 			u32 cmd_start = 0;
+			dst_frame.objects.push_back(AnalyzedObject(0, 0, 0)); // Add an empty object in case the current frame begins with register changes
+			AnalyzedObject* cur_object = &dst_frame.objects.back(); // TODO: Ugly
 
 			while (cmd_start < src_frame.fifoData.size())
 			{
@@ -242,22 +240,20 @@ public:
 				{
 					if (m_drawingObject)
 					{
-						dst_frame.objects.push_back(AnalyzedObject(cmd_start, cmd_start));
+						dst_frame.objects.push_back(AnalyzedObject(cmd_start, cmd_start, cmd_start));
 						cur_object = &dst_frame.objects.back();
 					}
 					else
 					{
 						// TODO: Should make sure that the first command is always a draw command...
-						dst_frame.objects.back().end = cmd_start;
+						cur_object->end = cmd_start;
 					}
 				}
-				dst_frame.cmd_starts.push_back(cmd_start);
-				dst_frame.cmd_enabled.push_back(true);
-				if (cur_object)
-				{
-					cur_object->cmd_starts.push_back(cmd_start);
-					cur_object->cmd_enabled.push_back(true);
-				}
+
+				cur_object->cmd_starts.push_back(cmd_start);
+				cur_object->cmd_enabled.push_back(true);
+				cur_object->last_cmd_byte = cmd_start + cmd_size - 1;
+
 				cmd_start += cmd_size;
 			}
 			if (m_drawingObject)
