@@ -324,19 +324,11 @@ void Init()
 	rmode = VIDEO_GetPreferredMode(NULL);
 	first_frame = 1;
 	fb = 0;
+#if ENABLE_CONSOLE!=1
 	frameBuffer[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode)); // TODO: Shouldn't require manual framebuffer management!
 	frameBuffer[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
-#if ENABLE_CONSOLE!=1
 	VIDEO_Configure(rmode);
 	VIDEO_SetNextFramebuffer(frameBuffer[fb]);
-	VIDEO_SetBlack(FALSE);
-	VIDEO_Flush();
-	VIDEO_WaitVSync();
-	if(rmode->viTVMode & VI_NON_INTERLACE)
-		VIDEO_WaitVSync();
-#else
-	//TODO Remove?
-	VIDEO_Configure(rmode);
 	VIDEO_SetBlack(FALSE);
 	VIDEO_Flush();
 	VIDEO_WaitVSync();
@@ -757,7 +749,9 @@ int main()
 					{
 						u32 tempval = /*be32toh*/(*(u32*)&cmd_data[1]);
 						UPE_Copy* copy = (UPE_Copy*)&tempval;
-//						if (!copy->copy_to_xfb)
+
+						// Version 1 did not support EFB->XFB copies
+						if (fifo_data.version >= 2 || !copy->copy_to_xfb)
 						{
 							bool update_textures = PrepareMemoryLoad(efbcopy_target, 640*480*4); // TODO: Size!!
 							u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(efbcopy_target));
@@ -785,11 +779,13 @@ int main()
 								}
 							}
 						}
+#if ENABLE_CONSOLE!=1
 						wgPipe->U8 = 0x61;
 						wgPipe->U8 = cmd_data[1];
 						wgPipe->U8 = cmd_data[2];
 						wgPipe->U8 = cmd_data[3];
 						wgPipe->U8 = cmd_data[4];
+#endif
 					}
 					else
 					{
@@ -878,28 +874,30 @@ int main()
 		// TODO: Flush WGPipe
 
 #if ENABLE_CONSOLE!=1
-#if 0
-		// finish frame
-		// Note that GX_CopyDisp(frameBuffer[fb],GX_TRUE) uses an internal state
-		// which is out of sync with the dff_data, so we're manually writing
-		// to the EFB copy registers instead.
-		wgPipe->U8 = GX_LOAD_BP_REG;
-		wgPipe->U32 = (BPMEM_EFB_ADDR << 24) | ((MEM_VIRTUAL_TO_PHYSICAL(frameBuffer[fb]) >> 5) & 0xFFFFFF);
-
-		UPE_Copy copy;
-		copy.Hex = 0;
-		copy.clear = 1;
-		copy.copy_to_xfb = 1;
-		wgPipe->U8 = GX_LOAD_BP_REG;
-		wgPipe->U32 = (BPMEM_TRIGGER_EFB_COPY << 24) | copy.Hex;
-
-		VIDEO_SetNextFramebuffer(frameBuffer[fb]);
-		if (first_frame)
+		if (fifo_data.version < 2)
 		{
-			VIDEO_SetBlack(FALSE);
-			first_frame = 0;
+			// finish frame for legacy dff files
+			//
+			// Note that GX_CopyDisp(frameBuffer[fb],GX_TRUE) uses an internal state
+			// which is out of sync with the dff_data, so we're manually writing
+			// to the EFB copy registers instead.
+			wgPipe->U8 = GX_LOAD_BP_REG;
+			wgPipe->U32 = (BPMEM_EFB_ADDR << 24) | ((MEM_VIRTUAL_TO_PHYSICAL(frameBuffer[fb]) >> 5) & 0xFFFFFF);
+
+			UPE_Copy copy;
+			copy.Hex = 0;
+			copy.clear = 1;
+			copy.copy_to_xfb = 1;
+			wgPipe->U8 = GX_LOAD_BP_REG;
+			wgPipe->U32 = (BPMEM_TRIGGER_EFB_COPY << 24) | copy.Hex;
+
+			VIDEO_SetNextFramebuffer(frameBuffer[fb]);
+			if (first_frame)
+			{
+				VIDEO_SetBlack(FALSE);
+				first_frame = 0;
+			}
 		}
-#endif
 #endif
 		VIDEO_Flush();
 		VIDEO_WaitVSync();
@@ -924,15 +922,6 @@ int main()
 		if (WPAD_ButtonsDown(0) & WPAD_BUTTON_HOME)
 		{
 			printf("\n");
-/*			for (unsigned int i = 0; i < fifo_data.frames[0].fifoData.size(); ++i)
-			{
-				printf("%02x", fifo_data.frames[0].fifoData[i]);
-				if (i == fifo_data.frames[0].fifoData.size()-5) printf("_");
-//				if ((i % 4) == 3) printf(" ");
-//				if ((i % 16) == 15) printf("\n");
-				if ((i % 4) == 3) printf(" ");
-				if ((i % 24) == 23) printf("\n");
-			}*/
 			fclose(fifo_data.file);
 			exit(0);
 		}

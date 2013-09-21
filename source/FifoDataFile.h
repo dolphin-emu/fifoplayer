@@ -12,9 +12,10 @@
 
 struct FifoFrameData
 {
-	std::vector<u8> fifoData;
 	u32 fifoStart;
 	u32 fifoEnd;
+
+	std::vector<u8> fifoData;
 
 	// Sorted by position - TODO: Make this a map instead?
 	std::vector<DffMemoryUpdate> memoryUpdates;
@@ -24,6 +25,7 @@ struct FifoFrameData
 struct FifoData
 {
 	FILE* file;
+	u32 version;
 
 	std::vector<FifoFrameData> frames;
 

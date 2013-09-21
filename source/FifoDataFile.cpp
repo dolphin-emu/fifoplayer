@@ -12,15 +12,15 @@ void LoadDffData(const char* filename, FifoData& out)
 	size_t numread = fread(&header, sizeof(DffFileHeader), 1, out.file);
 	header.FixEndianness();
 
-	// TODO: Version is not being checked for..
-
-	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 1)
+	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 2)
 	{
 		printf ("file ID or version don't match!\n");
 	}
+	out.version = header.file_version;
+
 	printf ("Got %d frame%s\n", header.frameCount, (header.frameCount == 1) ? "" : "s");
 
-	for (unsigned int i = 0;i < header.frameCount; ++i)
+	for (unsigned int i = 0; i < header.frameCount; ++i)
 	{
 		u64 frameOffset = header.frameListOffset + (i * sizeof(DffFrameInfo));
 		DffFrameInfo srcFrame;
@@ -32,9 +32,14 @@ void LoadDffData(const char* filename, FifoData& out)
 		out.frames.push_back(FifoFrameData());
 		FifoFrameData& dstFrame = out.frames[i];
 
-		dstFrame.fifoData.resize(srcFrame.fifoDataSize);
+		// Version 1 did not support XFB copies.
+		// To get it working at all the last 5 bytes are assumed
+		// to be a EFB->XFB copy and replaced with manual XFB handling.
+		// Thus they're not loaded into the actual fifo data.
+		u32 used_fifo_data_size = (header.file_version < 2) ? (srcFrame.fifoDataSize-5) : srcFrame.fifoDataSize;
+		dstFrame.fifoData.resize(used_fifo_data_size);
 		fseek(out.file, srcFrame.fifoDataOffset, SEEK_SET);
-		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize, 1, out.file);
+		fread(&dstFrame.fifoData[0], used_fifo_data_size, 1, out.file);
 
 		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
 		for (unsigned int i = 0; i < srcFrame.numMemoryUpdates; ++i)
@@ -46,14 +51,17 @@ void LoadDffData(const char* filename, FifoData& out)
 			srcUpdate.FixEndianness();
 		}
 
-		dstFrame.asyncEvents.resize(srcFrame.numAsyncEvents);
-		for (unsigned int i = 0; i < srcFrame.numAsyncEvents; ++i)
+		if (header.file_version >= 2)
 		{
-			u64 eventOffset = srcFrame.asyncEventsOffset + (i * sizeof(DffAsyncEvent));
-			DffAsyncEvent& srcEvent = dstFrame.asyncEvents[i];
-			fseek(out.file, eventOffset, SEEK_SET);
-			fread(&srcEvent, sizeof(DffAsyncEvent), 1, out.file);
-			srcEvent.FixEndianness();
+			dstFrame.asyncEvents.resize(srcFrame.numAsyncEvents);
+			for (unsigned int i = 0; i < srcFrame.numAsyncEvents; ++i)
+			{
+				u64 eventOffset = srcFrame.asyncEventsOffset + (i * sizeof(DffAsyncEvent));
+				DffAsyncEvent& srcEvent = dstFrame.asyncEvents[i];
+				fseek(out.file, eventOffset, SEEK_SET);
+				fread(&srcEvent, sizeof(DffAsyncEvent), 1, out.file);
+				srcEvent.FixEndianness();
+			}
 		}
 	}
 
@@ -78,8 +86,11 @@ void LoadDffData(const char* filename, FifoData& out)
 	fseek(out.file, header.xfRegsOffset, SEEK_SET);
 	fread(&out.xfregs[0], xf_regs_size*4, 1, out.file);
 
-	u32 vi_size = header.viMemSize;
-	out.vimem.resize(vi_size);
-	fseek(out.file, header.viMemOffset, SEEK_SET);
-	fread(&out.vimem[0], vi_size*2, 1, out.file);
+	if (header.file_version >= 2)
+	{
+		u32 vi_size = header.viMemSize;
+		out.vimem.resize(vi_size);
+		fseek(out.file, header.viMemOffset, SEEK_SET);
+		fread(&out.vimem[0], vi_size*2, 1, out.file);
+	}
 }
