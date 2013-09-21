@@ -31,10 +31,10 @@ void LoadDffData(const char* filename, FifoData& out)
 
 		out.frames.push_back(FifoFrameData());
 		FifoFrameData& dstFrame = out.frames[i];
-		// Skipping last 5 bytes, which are assumed to be a CopyDisp call for the XFB copy
-		dstFrame.fifoData.resize(srcFrame.fifoDataSize-5);
+
+		dstFrame.fifoData.resize(srcFrame.fifoDataSize);
 		fseek(out.file, srcFrame.fifoDataOffset, SEEK_SET);
-		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize-5, 1, out.file);
+		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize, 1, out.file);
 
 		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
 		for (unsigned int i = 0; i < srcFrame.numMemoryUpdates; ++i)
@@ -81,5 +81,5 @@ void LoadDffData(const char* filename, FifoData& out)
 	u32 vi_size = header.viMemSize;
 	out.vimem.resize(vi_size);
 	fseek(out.file, header.viMemOffset, SEEK_SET);
-	fread(&out.vimem[0], vi_size*4, 1, out.file);
+	fread(&out.vimem[0], vi_size*2, 1, out.file);
 }

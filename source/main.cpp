@@ -23,6 +23,7 @@
 #include "OpcodeDecoding.h"
 #include "FifoAnalyzer.h"
 
+#include "VideoInterface.h"
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -158,12 +159,15 @@ u8* GetPointer(u32 addr)
 
 static u32 tex_addr[8] = {0};
 
+static vu16* const _viReg = (u16*)0xCC002000;
+using namespace VideoInterface;
 void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& target_cpmem)
 {
 	const std::vector<u32>& bpmem = fifo_data.bpmem;
 	const std::vector<u32>& cpmem = fifo_data.cpmem;
 	const std::vector<u32>& xfmem = fifo_data.xfmem;
 	const std::vector<u32>& xfregs = fifo_data.xfregs;
+	const std::vector<u16>& vimem = fifo_data.vimem;
 
 	for (unsigned int i = 0; i < fifo_data.bpmem.size(); ++i)
 	{
@@ -205,6 +209,50 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 #if ENABLE_CONSOLE!=1
 		wgPipe->U8 = 0x61;
 		wgPipe->U32 = (i<<24)|(le32toh(new_value)&0xffffff);
+#endif
+	}
+
+	for (unsigned int i = 0; i < fifo_data.vimem.size(); ++i)
+	{
+		u16 new_value = vimem[i];
+
+		// Patch texture addresses
+		if ((2*i >= VI_FB_LEFT_TOP_HI && 2*i < VI_FB_LEFT_TOP_HI+4) ||
+			(2*i >= VI_FB_LEFT_BOTTOM_HI && 2*i < VI_FB_LEFT_BOTTOM_HI+4))
+		{
+			u32 tempval;
+			if (2*i == VI_FB_LEFT_TOP_HI)
+			{
+				// also swapping the two u16 values
+				tempval = ((u32)le16toh(vimem[VI_FB_LEFT_TOP_HI/2])) | ((u32)le16toh(vimem[VI_FB_LEFT_TOP_LO/2]) << 16);
+			}
+			else if (2*i == VI_FB_LEFT_BOTTOM_HI)
+			{
+				// also swapping the two u16 values
+				tempval = ((u32)le16toh(vimem[VI_FB_LEFT_BOTTOM_HI/2])) | ((u32)le16toh(vimem[VI_FB_LEFT_BOTTOM_LO/2]) << 16);
+			}
+			UVIFBInfoRegister* reg = (UVIFBInfoRegister*)&tempval;
+			u32 addr = (reg->POFF) ? (reg->FBB << 5) : reg->FBB;
+			u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
+			reg->FBB = (reg->POFF) ? (new_addr >> 5) : new_addr;
+
+			printf("XFB %s at %x (redirected to %x)\n", (2*i==VI_FB_LEFT_TOP_HI) ? "top" : "bottom", addr, new_addr);
+
+			u16 new_value_hi = h16tole(tempval >> 16);
+			u16 new_value_lo = h16tole(tempval & 0xFFFF);
+
+#if ENABLE_CONSOLE!=1
+			_viReg[i] = new_value_hi;
+			_viReg[i+1] = new_value_lo;
+#endif
+
+			++i;  // increase i by 2
+			continue;
+		}
+
+#if ENABLE_CONSOLE!=1
+		// TODO: Is this correct?
+//		_viReg[i] = new_value;
 #endif
 	}
 
@@ -271,7 +319,7 @@ void Init()
 	fb = 0;
 	frameBuffer[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode)); // TODO: Shouldn't require manual framebuffer management!
 	frameBuffer[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
-
+#if ENABLE_CONSOLE!=1
 	VIDEO_Configure(rmode);
 	VIDEO_SetNextFramebuffer(frameBuffer[fb]);
 	VIDEO_SetBlack(FALSE);
@@ -279,6 +327,16 @@ void Init()
 	VIDEO_WaitVSync();
 	if(rmode->viTVMode & VI_NON_INTERLACE)
 		VIDEO_WaitVSync();
+#else
+	//TODO Remove?
+	VIDEO_Configure(rmode);
+	VIDEO_SetBlack(FALSE);
+	VIDEO_Flush();
+	VIDEO_WaitVSync();
+	if(rmode->viTVMode & VI_NON_INTERLACE)
+		VIDEO_WaitVSync();
+#endif
+
 	fb ^= 1;
 
 	void *gp_fifo = NULL;
@@ -574,7 +632,6 @@ int main()
 	while (processing)
 	{
 		CheckForNetworkEvents(server_socket, client_socket, analyzed_frames);
-	printf("Done with that one...\n");
 
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
@@ -694,14 +751,14 @@ int main()
 					{
 						u32 tempval = /*be32toh*/(*(u32*)&cmd_data[1]);
 						UPE_Copy* copy = (UPE_Copy*)&tempval;
-						if (!copy->copy_to_xfb)
+//						if (!copy->copy_to_xfb)
 						{
 							bool update_textures = PrepareMemoryLoad(efbcopy_target, 640*480*4); // TODO: Size!!
 							u32 new_addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(efbcopy_target));
 							u32 new_value = /*h32tobe*/((BPMEM_EFB_ADDR<<24) | (new_addr >> 5));
 
-							// Update target address
 #if ENABLE_CONSOLE!=1
+							// Update target address
 							wgPipe->U8 = 0x61;
 							wgPipe->U32 = (BPMEM_EFB_ADDR<<24)|(/*be32toh*/(new_value)&0xffffff);
 #endif
@@ -722,6 +779,11 @@ int main()
 								}
 							}
 						}
+						wgPipe->U8 = 0x61;
+						wgPipe->U8 = cmd_data[1];
+						wgPipe->U8 = cmd_data[2];
+						wgPipe->U8 = cmd_data[3];
+						wgPipe->U8 = cmd_data[4];
 					}
 					else
 					{
@@ -830,9 +892,8 @@ int main()
 			VIDEO_SetBlack(FALSE);
 			first_frame = 0;
 		}
-
-		VIDEO_Flush();
 #endif
+		VIDEO_Flush();
 		VIDEO_WaitVSync();
 		fb ^= 1;
 

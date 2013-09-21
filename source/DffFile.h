@@ -31,6 +31,11 @@ static uint16_t le16toh(uint16_t val)
 	return ((val&0xff)<<8)|((val&0xff00)>>8);
 }
 
+static uint32_t h16tole(uint32_t val)
+{
+	return le16toh(val);
+}
+
 static uint64_t be64toh(uint64_t val)
 {
 	return val;

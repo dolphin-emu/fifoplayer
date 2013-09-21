@@ -31,7 +31,7 @@ struct FifoData
 	std::vector<u32> cpmem;
 	std::vector<u32> xfmem;
 	std::vector<u32> xfregs;
-	std::vector<u32> vimem;
+	std::vector<u16> vimem;
 };
 
 void LoadDffData(const char* filename, FifoData& out);
