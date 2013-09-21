@@ -12,7 +12,7 @@
 #include <QFile>
 #include <QTreeView>
 #include <QSignalMapper>
-#include "server.h"
+#include "client.h"
 #include <sys/socket.h>
 #include <stdint.h>
 #include <arpa/inet.h>
