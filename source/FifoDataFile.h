@@ -18,6 +18,7 @@ struct FifoFrameData
 
 	// Sorted by position - TODO: Make this a map instead?
 	std::vector<DffMemoryUpdate> memoryUpdates;
+	std::vector<DffAsyncEvent> asyncEvents;
 };
 
 struct FifoData
@@ -30,6 +31,7 @@ struct FifoData
 	std::vector<u32> cpmem;
 	std::vector<u32> xfmem;
 	std::vector<u32> xfregs;
+	std::vector<u32> vimem;
 };
 
 void LoadDffData(const char* filename, FifoData& out);

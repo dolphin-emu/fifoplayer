@@ -12,6 +12,8 @@ void LoadDffData(const char* filename, FifoData& out)
 	size_t numread = fread(&header, sizeof(DffFileHeader), 1, out.file);
 	header.FixEndianness();
 
+	// TODO: Version is not being checked for..
+
 	if (header.fileId != 0x0d01f1f0 || header.min_loader_version > 1)
 	{
 		printf ("file ID or version don't match!\n");
@@ -34,15 +36,24 @@ void LoadDffData(const char* filename, FifoData& out)
 		fseek(out.file, srcFrame.fifoDataOffset, SEEK_SET);
 		fread(&dstFrame.fifoData[0], srcFrame.fifoDataSize-5, 1, out.file);
 
-		u64 memoryUpdatesOffset;
 		dstFrame.memoryUpdates.resize(srcFrame.numMemoryUpdates);
-		for (unsigned int i = 0;i < srcFrame.numMemoryUpdates; ++i)
+		for (unsigned int i = 0; i < srcFrame.numMemoryUpdates; ++i)
 		{
 			u64 updateOffset = srcFrame.memoryUpdatesOffset + (i * sizeof(DffMemoryUpdate));
 			DffMemoryUpdate& srcUpdate = dstFrame.memoryUpdates[i];
 			fseek(out.file, updateOffset, SEEK_SET);
 			fread(&srcUpdate, sizeof(DffMemoryUpdate), 1, out.file);
 			srcUpdate.FixEndianness();
+		}
+
+		dstFrame.asyncEvents.resize(srcFrame.numAsyncEvents);
+		for (unsigned int i = 0; i < srcFrame.numAsyncEvents; ++i)
+		{
+			u64 eventOffset = srcFrame.asyncEventsOffset + (i * sizeof(DffAsyncEvent));
+			DffAsyncEvent& srcEvent = dstFrame.asyncEvents[i];
+			fseek(out.file, eventOffset, SEEK_SET);
+			fread(&srcEvent, sizeof(DffAsyncEvent), 1, out.file);
+			srcEvent.FixEndianness();
 		}
 	}
 
@@ -66,4 +77,9 @@ void LoadDffData(const char* filename, FifoData& out)
 	out.xfregs.resize(xf_regs_size);
 	fseek(out.file, header.xfRegsOffset, SEEK_SET);
 	fread(&out.xfregs[0], xf_regs_size*4, 1, out.file);
+
+	u32 vi_size = header.viMemSize;
+	out.vimem.resize(vi_size);
+	fseek(out.file, header.viMemOffset, SEEK_SET);
+	fread(&out.vimem[0], vi_size*4, 1, out.file);
 }
