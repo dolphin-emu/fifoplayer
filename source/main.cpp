@@ -30,6 +30,7 @@ typedef uint32_t u32;
 typedef uint8_t u8;
 
 
+				static u32 efbcopy_target = 0;
 #define DEF_ALIGN 32
 class aligned_buf
 {
@@ -242,8 +243,14 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 			u16 new_value_lo = h16tole(tempval & 0xFFFF);
 
 #if ENABLE_CONSOLE!=1
+			// "raw" register poking broken for some reason, using the easy method for now...
+			/*u32 level;
+			_CPU_ISR_Disable(level);
 			_viReg[i] = new_value_hi;
 			_viReg[i+1] = new_value_lo;
+			_CPU_ISR_Restore(level);*/
+//			VIDEO_SetNextFramebuffer(GetPointer(new_addr));
+			VIDEO_SetNextFramebuffer(GetPointer(efbcopy_target)); // and there go our haxx..
 #endif
 
 			++i;  // increase i by 2
@@ -652,6 +659,7 @@ int main()
 			ApplyInitialState(fifo_data, tex_addr, cpmem);
 		}
 
+
 		u32 last_pos = 0;
 		for (std::vector<AnalyzedObject>::iterator cur_object = cur_analyzed_frame.objects.begin();
 			cur_object != cur_analyzed_frame.objects.end(); ++cur_object)
@@ -677,8 +685,6 @@ int main()
 					}
 				}
 				last_pos = *cur_command;
-
-				static u32 efbcopy_target = 0;
 
 				if (!cur_object->cmd_enabled[cmd_index])
 					continue;
@@ -872,6 +878,7 @@ int main()
 		// TODO: Flush WGPipe
 
 #if ENABLE_CONSOLE!=1
+#if 0
 		// finish frame
 		// Note that GX_CopyDisp(frameBuffer[fb],GX_TRUE) uses an internal state
 		// which is out of sync with the dff_data, so we're manually writing
@@ -892,6 +899,7 @@ int main()
 			VIDEO_SetBlack(FALSE);
 			first_frame = 0;
 		}
+#endif
 #endif
 		VIDEO_Flush();
 		VIDEO_WaitVSync();
