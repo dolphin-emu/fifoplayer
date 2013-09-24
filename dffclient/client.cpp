@@ -224,15 +224,49 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 		return QVariant();
 
 	TreeItem* item = (TreeItem*)index.internalPointer();
+	const AnalyzedFrameInfo* analyzed_frame = NULL;
+	const AnalyzedObject* analyzed_object = NULL;
+
+	if (item->type == IDX_FRAME)
+	{
+		analyzed_frame = &analyzed_frames[item->index];
+	}
+	else if (item->type == IDX_OBJECT)
+	{
+		analyzed_frame = &analyzed_frames[item->parent->index];
+		analyzed_object = &analyzed_frame->objects[item->index];
+	}
+	else if (item->type == IDX_COMMAND)
+	{
+		analyzed_frame = &analyzed_frames[item->parent->parent->index];
+		analyzed_object = &analyzed_frame->objects[item->parent->index];
+	}
 
 	if (role == Qt::DisplayRole)
 	{
 		if (item->type == IDX_FRAME)
-			return QVariant(QString("Frame %1").arg(index.row()));
+		{
+			return QVariant(QString("Frame %1: %2 objects").arg(index.row()).arg(analyzed_frame->objects.size()));
+		}
 		else if (item->type == IDX_OBJECT)
-			return QVariant(QString("Object %1").arg(index.row()));
+		{
+			return QVariant(QString("Object %1: %2 commands").arg(index.row()).arg(analyzed_object->cmd_starts.size()));
+//			return QVariant(QString("Object %1: %2 commands (%3 geometry, %4 state changes)").arg(index.row()).arg(analyzed_object->cmd_starts.size()).arg(0).arg(0));
+		}
 		else
-			return QVariant(QString("Command %1").arg(index.row()));
+		{
+			u32 object_idx = item->parent->index;
+			u32 frame_idx = item->parent->parent->index;
+			QString ret = tr("Command %1: ").arg(index.row());
+
+			u32 cmd_offset_limit = analyzed_object->last_cmd_byte+1;
+			if (item->index+1 < analyzed_object->cmd_starts.size() && cmd_offset_limit > analyzed_object->cmd_starts[item->index+1])
+				cmd_offset_limit = analyzed_object->cmd_starts[item->index+1];
+			for (u32 i = analyzed_object->cmd_starts[item->index]; i < cmd_offset_limit; ++i)
+				ret += QString("%1").arg(fifo_data_.frames[frame_idx].fifoData[i], 2, 16, QLatin1Char('0'));
+
+			return QVariant(ret);
+		}
 	}
 	else if (role == Qt::BackgroundRole)
 	{
