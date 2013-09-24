@@ -103,8 +103,15 @@ public slots:
 	void OnSelectDff();
 	void OnLoadDff();
 
+	void OnSetProgress(int current, int max);
+
 signals:
 	void FifoDataChanged(FifoData& fifo_data);
+
+	void ShowProgressBar();
+	void HideProgressBar();
+	void SetProgressBarMax(int max);
+	void SetProgressBarValue(int value);
 
 private:
 	DffClient* client;

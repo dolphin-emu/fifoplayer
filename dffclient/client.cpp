@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QFileDialog>
 #include <QFile>
+#include <QProgressBar>
 #include <QTreeView>
 #include <QSignalMapper>
 #include "client.h"
@@ -17,6 +18,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <functional>
 #include "../source/protocol.h"
 #include "../source/FifoDataFile.h"
 #include "../source/FifoAnalyzer.h"
@@ -424,6 +426,13 @@ ServerWidget::ServerWidget() : QWidget()
 	QPushButton* openDffFile = new QPushButton(style()->standardIcon(QStyle::SP_DirOpenIcon), "");
 	QPushButton* loadDffFile = new QPushButton(tr("Load"));
 
+	QProgressBar* progress_bar = new QProgressBar;
+	connect(this, SIGNAL(ShowProgressBar()), progress_bar, SLOT(show()));
+	connect(this, SIGNAL(HideProgressBar()), progress_bar, SLOT(hide()));
+	connect(this, SIGNAL(SetProgressBarMax(int)), progress_bar, SLOT(setMaximum(int)));
+	connect(this, SIGNAL(SetProgressBarValue(int)), progress_bar, SLOT(setValue(int)));
+	progress_bar->hide();
+
 	connect(openDffFile, SIGNAL(clicked()), this, SLOT(OnSelectDff()));
 	connect(loadDffFile, SIGNAL(clicked()), this, SLOT(OnLoadDff()));
 
@@ -460,6 +469,9 @@ ServerWidget::ServerWidget() : QWidget()
 		main_layout->addLayout(layout);
 	}
 	{
+		main_layout->addWidget(progress_bar);
+	}
+	{
 		main_layout->addWidget(dff_view);
 	}
 	{
@@ -471,7 +483,8 @@ ServerWidget::ServerWidget() : QWidget()
 	setLayout(main_layout);
 }
 
-void WriteStreamDff(int socket, QString filename)
+// progress_callback takes a) the current progress as an arbitrary integer b) the progress value that corresponds to "completed task"
+void WriteStreamDff(int socket, QString filename, std::function<void(int,int)> progress_callback)
 {
 	u8 cmd = CMD_STREAM_DFF;
 	netqueue->PushCommand(&cmd, sizeof(cmd));
@@ -485,13 +498,14 @@ void WriteStreamDff(int socket, QString filename)
 	file.open(QIODevice::ReadOnly);
 	QDataStream stream(&file);
 
-	for (; size > 0; size -= dff_stream_chunk_size)
+	for (int32_t remaining = size; remaining > 0; remaining -= dff_stream_chunk_size)
 	{
+		progress_callback(size-remaining, size);
 		u8 data[dff_stream_chunk_size];
-		stream.readRawData((char*)data, std::min(size,dff_stream_chunk_size));
-		netqueue->PushCommand(data, std::min(size,dff_stream_chunk_size));
+		stream.readRawData((char*)data, std::min(remaining,dff_stream_chunk_size));
+		netqueue->PushCommand(data, std::min(remaining,dff_stream_chunk_size));
 
-		qDebug() << size << " bytes left to be sent!";
+		qDebug() << remaining << " bytes left to be sent!";
 	}
 	netqueue->Flush();
 
@@ -515,12 +529,22 @@ void ServerWidget::OnSelectDff()
 
 void ServerWidget::OnLoadDff()
 {
-	WriteStreamDff(client->socket, dffpath->text());
+	using namespace std::placeholders;
+
+	emit ShowProgressBar();
+	WriteStreamDff(client->socket, dffpath->text(), std::bind(&ServerWidget::OnSetProgress, this, _1, _2));
+	emit HideProgressBar();
 }
 
 void ServerWidget::OnTryConnect()
 {
 	client->Connect(hostname->text());
+}
+
+void ServerWidget::OnSetProgress(int current, int max)
+{
+	emit SetProgressBarMax(max);
+	emit SetProgressBarValue(current);
 }
 
 int main(int argc, char* argv[])
