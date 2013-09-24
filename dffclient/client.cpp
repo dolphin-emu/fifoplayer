@@ -285,6 +285,15 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 		u32 frame_idx = item->parent->parent->index;
 		return QVariant(analyzed_frames[frame_idx].objects[object_idx].cmd_starts[item->index]);
 	}
+	else if (role == UserRole_IsGeometryCommand)
+	{
+		if (item->type != IDX_COMMAND)
+			return QVariant(false);
+
+		u32 object_idx = item->parent->index;
+		u32 frame_idx = item->parent->parent->index;
+		return QVariant((fifo_data_.frames[frame_idx].fifoData[analyzed_frames[frame_idx].objects[object_idx].cmd_starts[item->index]] & 0x80) != 0);
+	}
 	else
 		return QVariant();
 }
@@ -332,6 +341,8 @@ void DffModel::OnFifoDataChanged(FifoData& fifo_data)
 
 	beginResetModel();
 
+	fifo_data_ = fifo_data;
+
 	delete root_item;
 	root_item = new TreeItem(this);
 
@@ -378,36 +389,38 @@ DffView::DffView(QWidget* parent) : QTreeView(parent)
 	setSelectionMode(QAbstractItemView::ExtendedSelection);
 }
 
-void DffView::OnEnableSelection(int enable)
+void DffView::OnEnableSelection(int flags)
 {
 	QModelIndexList indexes = selectionModel()->selectedIndexes();
-	bool benable = (enable == 0) ? false : true;
 
 	for (QModelIndexList::iterator it = indexes.begin(); it != indexes.end(); ++it)
-		EnableIndexRecursively(*it, benable);
+		EnableIndexRecursively(*it, (flags & CSF_ENABLE) != 0, (flags & CSF_GEOMETRY_AND_STATE) == 0);
+
+	if (netqueue)
+		netqueue->Flush();
 }
 
-void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable)
+void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable, bool geometry_only)
 {
 	if (index.data(DffModel::UserRole_Type).toInt() != DffModel::IDX_COMMAND)
 	{
 		for (int i = 0; i < model()->rowCount(index); ++i)
-			EnableIndexRecursively(index.child(i, 0), enable);
+			EnableIndexRecursively(index.child(i, 0), enable, geometry_only);
 
 		return;
 	}
 
 	// Notify server on state change
-	if (enable != index.data(DffModel::UserRole_IsEnabled).toBool())
+	if (enable != index.data(DffModel::UserRole_IsEnabled).toBool() &&
+		!(geometry_only && !index.data(DffModel::UserRole_IsGeometryCommand).toBool()))
 	{
 		u32 object_idx = index.data(DffModel::UserRole_ObjectIndex).toInt();
 		u32 frame_idx = index.data(DffModel::UserRole_FrameIndex).toInt();
 		WriteSetCommandEnabled(*client_socket, frame_idx, object_idx, index.data(DffModel::UserRole_CmdStart).toInt(), static_cast<int>(enable));
-	}
-	netqueue->Flush();
 
-	emit EnableEntry(index, enable);
-	// TODO: Should enable parent item if enable=true
+		// TODO: Should affect parent items when appropriate
+		emit EnableEntry(index, enable);
+	}
 }
 
 
@@ -442,14 +455,21 @@ ServerWidget::ServerWidget() : QWidget()
 
 	connect(this, SIGNAL(FifoDataChanged(FifoData&)), dff_model, SLOT(OnFifoDataChanged(FifoData&)));
 
-	QPushButton* enable_command_button = new QPushButton(tr("Enable"));
-	QPushButton* disable_command_button = new QPushButton(tr("Disable"));
+	// TODO: Add a "selection" frame around this
+	QPushButton* enable_command_button = new QPushButton(tr("Enable All"));
+	QPushButton* disable_command_button = new QPushButton(tr("Disable All"));
+	QPushButton* enable_geometry_button = new QPushButton(tr("Enable Geometry"));
+	QPushButton* disable_geometry_button = new QPushButton(tr("Disable Geometry"));
 
 	QSignalMapper* dff_view_mapper = new QSignalMapper(this);
 	connect(enable_command_button, SIGNAL(clicked()), dff_view_mapper, SLOT(map()));
 	connect(disable_command_button, SIGNAL(clicked()), dff_view_mapper, SLOT(map()));
-	dff_view_mapper->setMapping(enable_command_button, 1);
-	dff_view_mapper->setMapping(disable_command_button, 0);
+	connect(enable_geometry_button, SIGNAL(clicked()), dff_view_mapper, SLOT(map()));
+	connect(disable_geometry_button, SIGNAL(clicked()), dff_view_mapper, SLOT(map()));
+	dff_view_mapper->setMapping(enable_command_button, DffView::CSF_ENABLE|DffView::CSF_GEOMETRY_AND_STATE);
+	dff_view_mapper->setMapping(disable_command_button, DffView::CSF_DISABLE|DffView::CSF_GEOMETRY_AND_STATE);
+	dff_view_mapper->setMapping(enable_geometry_button, DffView::CSF_ENABLE|DffView::CSF_ONLY_GEOMETRY);
+	dff_view_mapper->setMapping(disable_geometry_button, DffView::CSF_DISABLE|DffView::CSF_ONLY_GEOMETRY);
 	connect(dff_view_mapper, SIGNAL(mapped(int)), dff_view, SLOT(OnEnableSelection(int)));
 	connect(dff_view, SIGNAL(EnableEntry(const QModelIndex&,bool)), dff_model, SLOT(SetEntryEnabled(const QModelIndex&,bool)));
 
@@ -478,6 +498,12 @@ ServerWidget::ServerWidget() : QWidget()
 		QHBoxLayout* layout = new QHBoxLayout;
 		layout->addWidget(enable_command_button);
 		layout->addWidget(disable_command_button);
+		main_layout->addLayout(layout);
+	}
+	{
+		QHBoxLayout* layout = new QHBoxLayout;
+		layout->addWidget(enable_geometry_button);
+		layout->addWidget(disable_geometry_button);
 		main_layout->addLayout(layout);
 	}
 	setLayout(main_layout);

@@ -19,17 +19,26 @@ class DffView : public QTreeView
 	Q_OBJECT
 
 public:
+	enum ChangeSelectionFlag
+	{
+		CSF_DISABLE = 0,
+		CSF_ENABLE = 1,
+
+		CSF_ONLY_GEOMETRY = 0,
+		CSF_GEOMETRY_AND_STATE = 2,
+	};
+
 	DffView(QWidget* parent);
 
 public slots:
-	void OnEnableSelection(int enable);
+	void OnEnableSelection(int flags); // ChangeSelectionFlag
 
 signals:
 	void EnableEntry(const QModelIndex& index, bool enable);
 
 private:
 	// Enables/Disables the command and all of its children
-	void EnableIndexRecursively(const QModelIndex& index, bool enable);
+	void EnableIndexRecursively(const QModelIndex& index, bool enable, bool geometry_only);
 };
 
 class DffModel : public QAbstractItemModel
@@ -50,6 +59,7 @@ public:
 		UserRole_ObjectIndex,
 		UserRole_CommandIndex,
 		UserRole_CmdStart,
+		UserRole_IsGeometryCommand,
 	};
 
 public:
@@ -69,6 +79,7 @@ public slots:
 private:
 	std::vector<AnalyzedFrameInfo> analyzed_frames;
 	TreeItem* root_item;
+	FifoData fifo_data_; // TODO: Shouldn't be required :/
 };
 
 class DffClient : public QObject
