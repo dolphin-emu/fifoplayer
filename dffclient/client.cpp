@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <functional>
 #include "../source/protocol.h"
+#include "../source/BPMemory.h"
 #include "../source/FifoDataFile.h"
 #include "../source/FifoAnalyzer.h"
 
@@ -259,13 +260,32 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 			u32 frame_idx = item->parent->parent->index;
 			QString ret = tr("Command %1: ").arg(index.row());
 
-			u32 cmd_offset_limit = analyzed_object->last_cmd_byte+1;
-			if (item->index+1 < analyzed_object->cmd_starts.size() && cmd_offset_limit > analyzed_object->cmd_starts[item->index+1])
-				cmd_offset_limit = analyzed_object->cmd_starts[item->index+1];
-			for (u32 i = analyzed_object->cmd_starts[item->index]; i < cmd_offset_limit; ++i)
-				ret += QString("%1").arg(fifo_data_.frames[frame_idx].fifoData[i], 2, 16, QLatin1Char('0'));
+			const u8* data = &fifo_data_.frames[frame_idx].fifoData[analyzed_object->cmd_starts[item->index]];
 
-			return QVariant(ret);
+			if (data[0] == GX_LOAD_BP_REG)
+			{
+				char reg_name[32] = { 0 };
+				GetBPRegInfo(data+1, reg_name, sizeof(reg_name), NULL, 0);
+				ret += QString::fromLatin1(reg_name) + " ";
+
+				u32 cmd_offset_limit = analyzed_object->last_cmd_byte+1;
+				if (item->index+1 < analyzed_object->cmd_starts.size() && cmd_offset_limit > analyzed_object->cmd_starts[item->index+1])
+					cmd_offset_limit = analyzed_object->cmd_starts[item->index+1];
+				for (u32 i = analyzed_object->cmd_starts[item->index]; i < cmd_offset_limit; ++i)
+					ret += QString("%1").arg(fifo_data_.frames[frame_idx].fifoData[i], 2, 16, QLatin1Char('0'));
+
+				return QVariant(ret);
+			}
+			else
+			{
+				u32 cmd_offset_limit = analyzed_object->last_cmd_byte+1;
+				if (item->index+1 < analyzed_object->cmd_starts.size() && cmd_offset_limit > analyzed_object->cmd_starts[item->index+1])
+					cmd_offset_limit = analyzed_object->cmd_starts[item->index+1];
+				for (u32 i = analyzed_object->cmd_starts[item->index]; i < cmd_offset_limit; ++i)
+					ret += QString("%1").arg(fifo_data_.frames[frame_idx].fifoData[i], 2, 16, QLatin1Char('0'));
+
+				return QVariant(ret);
+			}
 		}
 	}
 	else if (role == Qt::BackgroundRole)

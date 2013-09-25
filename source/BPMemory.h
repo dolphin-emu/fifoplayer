@@ -5,6 +5,8 @@
 #ifndef _BPMEMORY_H
 #define _BPMEMORY_H
 
+#include "CommonTypes.h"
+
 #pragma pack(4)
 
 #define BPMEM_GENMODE          0x00

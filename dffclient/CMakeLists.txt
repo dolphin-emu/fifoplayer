@@ -15,5 +15,5 @@ include(${QT_USE_FILE})
 
 qt4_wrap_cpp(MOC_SRCS client.h)
 
-add_executable(dffclient client.cpp ../source/FifoDataFile.cpp ${MOC_SRCS})
+add_executable(dffclient client.cpp ../source/FifoDataFile.cpp ../source/BPMemory.cpp ${MOC_SRCS})
 target_link_libraries(dffclient ${QT_LIBRARIES})

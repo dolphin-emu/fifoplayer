@@ -732,6 +732,7 @@ int main()
 #endif
 #endif
 					}
+					// TODO: Check for BPMEM_PRELOAD_MODE
 					else if (cmd_data[1] == BPMEM_EFB_ADDR)
 					{
 						u32 tempval = /*be32toh*/(*(u32*)&cmd_data[1]);
