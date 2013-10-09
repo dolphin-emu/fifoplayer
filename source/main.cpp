@@ -393,6 +393,7 @@ void ReadStreamedDff(int socket)
 	int32_t size = ntohl(n_size);
 	printf("About to read %d bytes of dff data!", size);
 
+	mkdir("sd:/dff", 0777);
 	FILE* file = fopen("sd:/dff/test.dff", "wb"); // TODO: Change!
 
 	if (file == NULL)
