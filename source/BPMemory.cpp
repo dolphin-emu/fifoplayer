@@ -32,6 +32,8 @@
 	BPWritten(bp);
 }*/
 
+#define snprintf(a,b,...) {}
+
 void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size_t desc_size)
 {
 	const char* no_yes[2] = { "No", "Yes" };
@@ -359,3 +361,4 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 #undef SetRegName
 	}
 }
+

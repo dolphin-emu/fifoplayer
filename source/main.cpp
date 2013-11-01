@@ -30,7 +30,7 @@ typedef uint32_t u32;
 typedef uint8_t u8;
 
 
-				static u32 efbcopy_target = 0;
+static u32 efbcopy_target = 0;
 #define DEF_ALIGN 32
 class aligned_buf
 {
@@ -89,11 +89,37 @@ bool IntersectsMemoryRange(u32 start1, u32 size1, u32 start2, u32 size2)
 			(start2 >= start1 && start2 < start1 + size1));
 }
 
+u32 FixupMemoryAddress(u32 addr)
+{
+	switch (addr >> 28)
+	{
+		case 0x0:
+		case 0x8:
+			addr &= 0x1FFFFFF; // RAM_MASK
+			break;
+
+		case 0x1:
+		case 0x9:
+		case 0xd:
+			// TODO: Iff Wii
+			addr &= 0x3FFFFFF; // EXRAM_MASK
+			break;
+
+		default:
+			printf("CRITICAL: Unkown memory location %x!\n", addr);
+			exit(0); // I'd rather exit than not noticing this kind of issue...
+			break;
+	}
+	return addr;
+}
+
 // TODO: Needs to take care of alignment, too!
 // Returns true if memory layout changed
 bool PrepareMemoryLoad(u32 start_addr, u32 size)
 {
 	bool ret = false;
+
+	start_addr = FixupMemoryAddress(start_addr);
 
 	// Make sure alignment of data inside the memory block is preserved
 	u32 off = start_addr % DEF_ALIGN;
@@ -151,6 +177,8 @@ bool PrepareMemoryLoad(u32 start_addr, u32 size)
 // Must have been reserved via PrepareMemoryLoad first
 u8* GetPointer(u32 addr)
 {
+	addr = FixupMemoryAddress(addr);
+
 	for (auto it = memory_map.begin(); it != memory_map.end(); ++it)
 		if (addr >= it->first && addr < it->first + it->second.size)
 			return &it->second.buf[addr - it->first];
@@ -280,7 +308,10 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 
 	for (int i = 0; i < 16; ++i)
 	{
-		MLoadCPReg(0xa0 + i, le32toh(cpmem[0xa0 + i]));
+		// 0xA0 has the addresses of vertex arrays, which need to be relocated.
+		u32 addr = le32toh(cpmem[0xa0 + i]);
+		addr = MEM_VIRTUAL_TO_PHYSICAL(GetPointer(addr));
+		MLoadCPReg(0xa0 + i, addr);
 		MLoadCPReg(0xb0 + i, le32toh(cpmem[0xb0 + i]));
 	}
 	#undef MLoadCPReg
@@ -288,7 +319,7 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 	for (unsigned int i = 0; i < xfmem.size(); i += 16)
 	{
 		wgPipe->U8 = 0x10;
-		wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes
+		wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes at once
 		for (int k = 0; k < 16; ++k)
 			wgPipe->U32 = le32toh(xfmem[i + k]);
 	}
@@ -505,7 +536,6 @@ void ReadCommandEnable(int socket, std::vector<AnalyzedFrameInfo>& analyzed_fram
 		}
 	}
 }
-
 
 void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<AnalyzedFrameInfo>& analyzed_frames)
 {
