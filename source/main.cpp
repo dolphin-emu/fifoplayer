@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <malloc.h>
 #include <map>
 #include <vector>
 #include <stdint.h>
@@ -22,6 +21,7 @@
 #include "FifoDataFile.h"
 #include "OpcodeDecoding.h"
 #include "FifoAnalyzer.h"
+#include "memory_manager.h"
 
 #include "VideoInterface.h"
 
@@ -31,160 +31,6 @@ typedef uint8_t u8;
 
 
 static u32 efbcopy_target = 0;
-#define DEF_ALIGN 32
-class aligned_buf
-{
-public:
-	aligned_buf() : buf(NULL), size(0), alignment(DEF_ALIGN) {}
-	aligned_buf(int alignment) : buf(NULL), size(0), alignment(alignment) {}
-	~aligned_buf()
-	{
-		free(buf);
-	}
-
-	aligned_buf(const aligned_buf& oth)
-	{
-		if (oth.buf)
-		{
-			buf = (u8*)memalign(oth.alignment, oth.size);
-			printf("copied to %p (%x) \n", buf, MEM_VIRTUAL_TO_PHYSICAL(buf));
-			memcpy(buf, oth.buf, oth.size);
-		}
-		else buf = NULL;
-		size = oth.size;
-		alignment = oth.alignment;
-	}
-
-	void resize(int new_size)
-	{
-		if (!buf)
-		{
-			buf = (u8*)memalign(alignment, new_size);
-			printf("allocated to %p (%x) - size %x \n", buf, MEM_VIRTUAL_TO_PHYSICAL(buf), new_size);
-
-		}
-		else
-		{
-			u8* old_buf = buf;
-			buf = (u8*)memalign(alignment, new_size);
-			memcpy(buf, old_buf, std::min(new_size, size));
-			printf("reallocated to %p (%x)\n", buf, MEM_VIRTUAL_TO_PHYSICAL(buf));
-			free(old_buf);
-		}
-		size = new_size;
-	}
-
-	u8* buf;
-	int size;
-
-private:
-	int alignment;
-};
-
-std::map<u32, aligned_buf > memory_map; // map of memory chunks (indexed by starting address)
-
-bool IntersectsMemoryRange(u32 start1, u32 size1, u32 start2, u32 size2)
-{
-	return size1 && size2 && ((start1 >= start2 && start1 < start2 + size2) ||
-			(start2 >= start1 && start2 < start1 + size1));
-}
-
-u32 FixupMemoryAddress(u32 addr)
-{
-	switch (addr >> 28)
-	{
-		case 0x0:
-		case 0x8:
-			addr &= 0x1FFFFFF; // RAM_MASK
-			break;
-
-		case 0x1:
-		case 0x9:
-		case 0xd:
-			// TODO: Iff Wii
-			addr &= 0x3FFFFFF; // EXRAM_MASK
-			break;
-
-		default:
-			printf("CRITICAL: Unkown memory location %x!\n", addr);
-			exit(0); // I'd rather exit than not noticing this kind of issue...
-			break;
-	}
-	return addr;
-}
-
-// TODO: Needs to take care of alignment, too!
-// Returns true if memory layout changed
-bool PrepareMemoryLoad(u32 start_addr, u32 size)
-{
-	bool ret = false;
-
-	start_addr = FixupMemoryAddress(start_addr);
-
-	// Make sure alignment of data inside the memory block is preserved
-	u32 off = start_addr % DEF_ALIGN;
-	start_addr = start_addr - off;
-	size += off;
-
-	std::vector<u32> affected_elements;
-	u32 new_start_addr = start_addr;
-	u32 new_end_addr = start_addr + size - 1;
-
-	// Find overlaps with existing memory chunks
-	for (auto it = memory_map.begin(); it != memory_map.end(); ++it)
-	{
-		if (IntersectsMemoryRange(it->first, it->second.size, start_addr, size))
-		{
-			affected_elements.push_back(it->first);
-			if (it->first < new_start_addr)
-				new_start_addr = it->first;
-			if (it->first + it->second.size > new_end_addr + 1)
-				new_end_addr = it->first + it->second.size - 1;
-		}
-	}
-
-	aligned_buf& new_memchunk(memory_map[new_start_addr]); // creates a new vector or uses the existing one
-	u32 new_size = new_end_addr - new_start_addr + 1;
-
-	// if the new memory range is inside an existing chunk, there's nothing to do
-	if (new_memchunk.size == new_size)
-		return false;
-
-	// resize chunk to required size, move old content to it, replace old arrays with new one
-	// NOTE: can't do reserve here because not the whole memory might be covered by existing memory chunks
-	new_memchunk.resize(new_size);
-	while (!affected_elements.empty())
-	{
-		u32 addr = affected_elements.back();
-
-		// first chunk is already in new_memchunk
-		if (addr != new_start_addr)
-		{
-			aligned_buf& src = memory_map[addr];
-			memcpy(&new_memchunk.buf[addr - new_start_addr], &src.buf[0], src.size);
-			memory_map.erase(addr);
-
-			ret = true;
-		}
-		affected_elements.pop_back();
-	}
-
-	// TODO: Handle critical case where memory allocation fails!
-
-	return ret;
-}
-
-// Must have been reserved via PrepareMemoryLoad first
-u8* GetPointer(u32 addr)
-{
-	addr = FixupMemoryAddress(addr);
-
-	for (auto it = memory_map.begin(); it != memory_map.end(); ++it)
-		if (addr >= it->first && addr < it->first + it->second.size)
-			return &it->second.buf[addr - it->first];
-
-	return NULL;
-}
 
 static u32 tex_addr[8] = {0};
 
@@ -321,13 +167,17 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 		wgPipe->U8 = 0x10;
 		wgPipe->U32 = 0xf0000 | (i&0xffff); // load 16*4 bytes at once
 		for (int k = 0; k < 16; ++k)
+		{
 			wgPipe->U32 = le32toh(xfmem[i + k]);
+		}
 	}
 
 	for (unsigned int i = 0; i < xfregs.size(); ++i)
 	{
 		wgPipe->U8 = 0x10;
 		wgPipe->U32 = 0x1000 | (i&0x0fff);
+		u32 val = xfregs[i];
+		if (i == 5) val = 1;
 		wgPipe->U32 = le32toh(xfregs[i]);
 	}
 
@@ -337,6 +187,15 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 	wgPipe->U16 = 0;
 	wgPipe->U8 = 0;
 #endif
+}
+
+// Removes redundant data from a fifo log
+void OptimizeFifoData(FifoData& fifo_data)
+{
+	for (auto frame : fifo_data.frames)
+	{
+//		for (auto byte : frame.)
+	}
 }
 
 #define DFF_FILENAME "sd:/dff/test.dff"
@@ -391,18 +250,6 @@ void Init()
 
 #include "mygx.h"
 
-int ReadHandshake(int socket)
-{
-	char data[4];
-	net_recv(socket, data, sizeof(data), 0);
-	uint32_t received_handshake = ntohl(*(uint32_t*)&data[0]);
-
-	if (received_handshake != handshake)
-		return RET_FAIL;
-
-	return RET_SUCCESS;
-}
-
 bool CheckIfHomePressed()
 {
 /*	VIDEO_WaitVSync();
@@ -415,216 +262,6 @@ bool CheckIfHomePressed()
 		return true;
 	}
 	return false;
-}
-
-void ReadStreamedDff(int socket)
-{
-	int32_t n_size;
-	net_recv(socket, &n_size, 4, 0);
-	int32_t size = ntohl(n_size);
-	printf("About to read %d bytes of dff data!", size);
-
-	mkdir("sd:/dff", 0777);
-	FILE* file = fopen("sd:/dff/test.dff", "wb"); // TODO: Change!
-
-	if (file == NULL)
-	{
-		printf("Failed to open output file!\n");
-	}
-
-	for (; size > 0; )
-	{
-		char data[dff_stream_chunk_size];
-		ssize_t num_received = net_recv(socket, data, std::min(size,dff_stream_chunk_size), 0);
-		if (num_received == -1)
-		{
-			printf("Error in recv!\n");
-		}
-		else if (num_received > 0)
-		{
-			fwrite(data, num_received, 1, file);
-			size -= num_received;
-		}
-//		printf("%d bytes left to be read!\n", size);
-		CheckIfHomePressed();
-	}
-	printf ("Done reading :)\n");
-
-	fclose(file);
-}
-
-int WaitForConnection(int& server_socket)
-{
-	int addrlen;
-	struct sockaddr_in my_name, peer_name;
-	int status;
-
-	server_socket = net_socket(AF_INET, SOCK_STREAM, 0);
-	if (server_socket == -1)
-	{
-		printf("Failed to create server socket\n");
-	}
-	int yes = 1;
-	net_setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-
-	memset(&my_name, 0, sizeof(my_name));
-	my_name.sin_family = AF_INET;
-	my_name.sin_port = htons(DFF_CONN_PORT);
-	my_name.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	status = net_bind(server_socket, (struct sockaddr*)&my_name, sizeof(my_name));
-	if (status == -1)
-	{
-		printf("Failed to bind server socket\n");
-	}
-
-	status = net_listen(server_socket, 5); // TODO: Change second parameter..
-	if (status == -1)
-	{
-		printf("Failed to listen on server socket\n");
-	}
-	printf("Listening now!\n");
-
-	int client_socket = -1;
-
-	struct sockaddr_in client_info;
-	socklen_t ssize = sizeof(client_info);
-	int new_socket = net_accept(server_socket, (struct sockaddr*)&client_info, &ssize);
-	if (new_socket < 0)
-	{
-		printf("accept failed!\n");
-	}
-	else
-	{
-		client_socket = new_socket;
-		printf("accept succeeded and returned %d\n", client_socket);
-	}
-
-	return client_socket;
-}
-
-#define MSG_PEEK 0x02
-
-void ReadCommandEnable(int socket, std::vector<AnalyzedFrameInfo>& analyzed_frames, bool enable)
-{
-	char cmd;
-	u32 frame_idx;
-	u32 object;
-	u32 offset;
-
-	char data[12];
-
-	ssize_t numread = 0;
-	while (numread != sizeof(data))
-		numread += net_recv(socket, data+numread, sizeof(data)-numread, 0);
-
-	frame_idx = ntohl(*(u32*)&data[0]);
-	object = ntohl(*(u32*)&data[4]);
-	offset = ntohl(*(u32*)&data[8]);
-
-	printf("%s command %d in frame %d;\n", (enable)?"Enabled":"Disabled", offset, frame_idx);
-	AnalyzedFrameInfo& frame = analyzed_frames[frame_idx];
-	AnalyzedObject& obj = frame.objects[object];
-
-	for (int i = 0; i < obj.cmd_starts.size(); ++i)
-	{
-		if (obj.cmd_starts[i] == offset)
-		{
-			obj.cmd_enabled[i] = enable;
-			printf("%s command %d in frame %d, %d\n", (enable)?"Enabled":"Disabled", i, frame_idx, obj.cmd_enabled.size());
-			break;
-		}
-	}
-}
-
-void CheckForNetworkEvents(int server_socket, int client_socket, std::vector<AnalyzedFrameInfo>& analyzed_frames)
-{
-#if 0
-	fd_set readset;
-	FD_ZERO(&readset);
-//	FD_SET(server_socket, &readset);
-//	if (client_socket != -1)
-		FD_SET(client_socket, &readset);
-//	int maxfd = std::max(client_socket, server_socket);
-	int maxfd = client_socket;
-
-	struct timeval timeout;
-	timeout.tv_sec = 1;
-	timeout.tv_usec = 0;
-
-	char data[12];
-	int ret = net_select(maxfd+1, &readset, NULL, NULL, &timeout); // TODO: Is this compatible with winsocks?
-
-	if (ret <= 0)
-	{
-		if (ret < 0)
-			printf("select returned %d\n", ret);
-		return;
-	}
-/*	if (FD_ISSET(server_socket, &readset))
-	{
-		int new_socket = net_accept(server_socket, NULL, NULL);
-		if (new_socket < 0)
-		{
-			qDebug() << "accept failed";
-		}
-		else client_socket = new_socket;
-	}*/
-#endif
-
-	struct pollsd fds[2];
-	memset(fds, 0, sizeof(fds));
-//	fds[0].socket = server_socket;
-	fds[0].socket = client_socket;
-	fds[0].events = POLLIN;
-	int nfds = 1;
-	int timeout = 1; // TODO: Set to zero
-
-	int ret;
-	do {
-		ret = net_poll(fds, nfds, timeout);
-		if (ret < 0)
-		{
-			printf("poll returned error %d\n", ret);
-			return;
-		}
-		if (ret == 0)
-		{
-			printf("timeout :(\n");
-			// timeout
-			return;
-		}
-
-		char cmd;
-		ssize_t numread = net_recv(client_socket, &cmd, 1, 0);
-		printf("Peeked command %d\n", cmd);
-		switch (cmd)
-		{
-			case CMD_HANDSHAKE:
-				if (RET_SUCCESS == ReadHandshake(client_socket))
-					printf("Successfully exchanged handshake token!\n");
-				else
-					printf("Failed to exchange handshake token!\n");
-
-				// TODO: should probably write a handshake in return, but ... I'm lazy
-				break;
-
-			case CMD_STREAM_DFF:
-				//ReadStreamedDff(client_socket);
-				break;
-
-			case CMD_ENABLE_COMMAND:
-			case CMD_DISABLE_COMMAND:
-				ReadCommandEnable(client_socket, analyzed_frames, (cmd == CMD_ENABLE_COMMAND) ? true : false);
-				break;
-
-			default:
-				printf("Received unknown command: %d\n", cmd);
-				break;
-		}
-		printf("Looping again\n");
-		timeout = 100;
-	} while (ret > 0);
 }
 
 int main()
@@ -642,7 +279,7 @@ int main()
 		printf("Failed to exchanged handshake token!\n");
 
 	net_recv(client_socket, &dummy, 1, 0);
-	ReadStreamedDff(client_socket);
+	ReadStreamedDff(client_socket, CheckIfHomePressed);
 
 	FifoData fifo_data;
 	LoadDffData(DFF_FILENAME, fifo_data);
@@ -661,7 +298,7 @@ int main()
 	int cur_frame = first_frame;
 	while (processing)
 	{
-		CheckForNetworkEvents(server_socket, client_socket, analyzed_frames);
+		CheckForNetworkEvents(server_socket, client_socket, fifo_data.frames, analyzed_frames);
 
 		FifoFrameData& cur_frame_data = fifo_data.frames[cur_frame];
 		AnalyzedFrameInfo& cur_analyzed_frame = analyzed_frames[cur_frame];
