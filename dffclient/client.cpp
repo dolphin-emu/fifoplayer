@@ -23,8 +23,11 @@
 #include "../source/BPMemory.h"
 #include "../source/FifoDataFile.h"
 #include "../source/FifoAnalyzer.h"
+#include "command_info.h"
 
 int* client_socket = NULL; // TODO: Remove this
+
+LayoutStream* command_description = NULL; // TODO
 
 class NetworkQueue
 {
@@ -409,6 +412,11 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 		u32 frame_idx = item->parent->parent->index;
 		return QVariant((fifo_data_.frames[frame_idx].fifoData[analyzed_frames[frame_idx].objects[object_idx].cmd_starts[item->index]] & 0x80) != 0);
 	}
+	else if (role == UserRole_FifoData)
+	{
+		u32 frame_idx = data(index, UserRole_FrameIndex).toInt();
+		return QVariant(QByteArray((const char*)&fifo_data_.frames[frame_idx].fifoData[0], fifo_data_.frames[frame_idx].fifoData.size()));
+	}
 	else
 		return QVariant();
 }
@@ -545,9 +553,27 @@ void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable, bool
 	}
 }
 
-
 ServerWidget::ServerWidget() : QWidget()
 {
+	// dumb testing code for the bitfield class
+/*	UPE_Copy copy;
+	copy.Hex = 0x12345678;
+#define PRINT_FIELD(name) qDebug() << copy.name << " " << copy._##name
+	copy._target_pixel_format = 6;
+	PRINT_FIELD(auto_conv);
+	PRINT_FIELD(intensity_fmt);
+	PRINT_FIELD(copy_to_xfb);
+	PRINT_FIELD(frame_to_field);
+	PRINT_FIELD(clear);
+	PRINT_FIELD(scale_invert);
+	PRINT_FIELD(half_scale);
+	PRINT_FIELD(gamma);
+	PRINT_FIELD(target_pixel_format);
+	PRINT_FIELD(yuv);
+	PRINT_FIELD(clamp1);
+	PRINT_FIELD(clamp0);
+	exit(0);*/
+
 	client = new DffClient(this);
 
 	hostname = new QLineEdit("127.0.0.1");
@@ -576,6 +602,11 @@ ServerWidget::ServerWidget() : QWidget()
 	dff_view->setModel(dff_model);
 
 	connect(this, SIGNAL(FifoDataChanged(FifoData&)), dff_model, SLOT(OnFifoDataChanged(FifoData&)));
+
+	command_description = new LayoutStream;
+
+	connect(dff_view->selectionModel(), SIGNAL(currentChanged(const QModelIndex&,const QModelIndex&)),
+			command_description, SLOT(ActiveItemChanged(const QModelIndex&)));
 
 	// TODO: Add a "selection" frame around this
 	QPushButton* enable_command_button = new QPushButton(tr("Enable All"));
@@ -618,6 +649,9 @@ ServerWidget::ServerWidget() : QWidget()
 	}
 	{
 		main_layout->addWidget(dff_view);
+	}
+	{
+		main_layout->addLayout(command_description);
 	}
 	{
 		QHBoxLayout* layout = new QHBoxLayout;

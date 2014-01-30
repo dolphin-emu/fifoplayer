@@ -60,6 +60,7 @@ public:
 		UserRole_CommandIndex,
 		UserRole_CmdStart,
 		UserRole_IsGeometryCommand,
+		UserRole_FifoData,
 	};
 
 public:

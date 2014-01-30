@@ -6,6 +6,7 @@
 #define _BPMEMORY_H
 
 #include "CommonTypes.h"
+#include "BitField.h"
 
 #pragma pack(4)
 
@@ -893,6 +894,18 @@ union AlphaTest
 union UPE_Copy
 {
 	u32 Hex;
+	BitField<0,1> _clamp0;
+	BitField<1,1> _clamp1;
+	BitField<2,1> _yuv;
+	BitField<3,4> _target_pixel_format;
+	BitField<7,2> _gamma;
+	BitField<9,1> _half_scale;
+	BitField<10,1> _scale_invert;
+	BitField<11,1> _clear;
+	BitField<12,2> _frame_to_field;
+	BitField<14,1> _copy_to_xfb;
+	BitField<15,1> _intensity_fmt;
+	BitField<16,1> _auto_conv;
 	struct
 	{
 #if BYTE_ORDER == BIG_ENDIAN

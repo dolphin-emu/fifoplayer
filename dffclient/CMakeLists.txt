@@ -13,7 +13,7 @@ endif(HAVE_ENDIAN_H)
 find_package(Qt4 REQUIRED QtCore QtGui QtNetwork)
 include(${QT_USE_FILE})
 
-qt4_wrap_cpp(MOC_SRCS client.h)
+qt4_wrap_cpp(MOC_SRCS client.h command_info.h)
 
-add_executable(dffclient client.cpp ../source/FifoDataFile.cpp ../source/BPMemory.cpp ${MOC_SRCS})
+add_executable(dffclient client.cpp command_info.cpp ../source/FifoDataFile.cpp ../source/BPMemory.cpp ${MOC_SRCS})
 target_link_libraries(dffclient ${QT_LIBRARIES})
