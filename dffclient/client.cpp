@@ -86,6 +86,24 @@ void WriteSetCommandEnabled(int socket, u32 frame, u32 object, u32 offset, int e
 	netqueue->PushCommand(data, sizeof(data));
 }
 
+void WritePatchCommand(int socket, u32 frame, u32 offset, u32 size, u8* data)
+{
+	u8 cmd = CMD_PATCH_COMMAND;
+	u32 frame_n = htonl(frame);
+	u32 offset_n = htonl(offset);
+	u32 size_n = htonl(size);
+
+	// TODO: Ugly
+	u8 cmd_data[13];
+	cmd_data[0] = cmd;
+	*(u32*)&cmd_data[1] = frame_n;
+	*(u32*)&cmd_data[5] = offset_n;
+	*(u32*)&cmd_data[9] = size_n;
+	netqueue->PushCommand(cmd_data, sizeof(cmd_data));
+	netqueue->PushCommand(data, size);
+	netqueue->Flush();
+}
+
 DffClient::DffClient(QObject* parent) : QObject(parent)
 {
 	client_socket = &socket;
@@ -219,6 +237,43 @@ int DffModel::columnCount(const QModelIndex& parent) const
 	return 1;
 }
 
+bool DffModel::setData(const QModelIndex& index, const QVariant& value, int role)
+{
+	if (role != Qt::EditRole)
+		return false;
+
+	// TODO: Check that the input data is valid
+	TreeItem* item = (TreeItem*)index.internalPointer();
+
+	qDebug() << "Patching to data: " << value.toString();
+	const AnalyzedFrameInfo* analyzed_frame = NULL;
+	const AnalyzedObject* analyzed_object = NULL;
+
+	analyzed_frame = &analyzed_frames[item->parent->parent->index];
+	analyzed_object = &analyzed_frame->objects[item->parent->index];
+
+	for (int byte = 0; byte < value.toString().size() / 2; ++byte)
+	{
+		bool ok;
+		u8 data = value.toString().mid(byte*2, 2).toInt(&ok, 16);
+		qDebug() << "byte: " << data;
+		WritePatchCommand(*client_socket, item->parent->parent->index, byte + analyzed_object->cmd_starts[item->index], 1, &data);
+	}
+
+	emit dataChanged(index, index);
+
+	return true;
+}
+
+Qt::ItemFlags DffModel::flags(const QModelIndex& index) const
+{
+	TreeItem* item = (TreeItem*)index.internalPointer();
+	if (item->type == IDX_COMMAND)
+		return Qt::ItemIsEditable | QAbstractItemModel::flags(index);
+
+	return QAbstractItemModel::flags(index);
+}
+
 QVariant DffModel::data(const QModelIndex& index, int role) const
 {
 	if (!index.isValid())
@@ -243,30 +298,35 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 		analyzed_object = &analyzed_frame->objects[item->parent->index];
 	}
 
-	if (role == Qt::DisplayRole)
+	if (role == Qt::DisplayRole || role == Qt::EditRole)
 	{
-		if (item->type == IDX_FRAME)
+		if (item->type == IDX_FRAME && role == Qt::DisplayRole)
 		{
 			return QVariant(QString("Frame %1: %2 objects").arg(index.row()).arg(analyzed_frame->objects.size()));
 		}
-		else if (item->type == IDX_OBJECT)
+		else if (item->type == IDX_OBJECT && role == Qt::DisplayRole)
 		{
 			return QVariant(QString("Object %1: %2 commands").arg(index.row()).arg(analyzed_object->cmd_starts.size()));
 //			return QVariant(QString("Object %1: %2 commands (%3 geometry, %4 state changes)").arg(index.row()).arg(analyzed_object->cmd_starts.size()).arg(0).arg(0));
 		}
-		else
+		else if (item->type == IDX_COMMAND)
 		{
 			u32 object_idx = item->parent->index;
 			u32 frame_idx = item->parent->parent->index;
-			QString ret = tr("Command %1: ").arg(index.row());
+			QString ret;
+			if (role == Qt::DisplayRole)
+				ret = tr("Command %1: ").arg(index.row());
 
 			const u8* data = &fifo_data_.frames[frame_idx].fifoData[analyzed_object->cmd_starts[item->index]];
 
 			if (data[0] == GX_LOAD_BP_REG)
 			{
-				char reg_name[32] = { 0 };
-				GetBPRegInfo(data+1, reg_name, sizeof(reg_name), NULL, 0);
-				ret += QString::fromLatin1(reg_name) + " ";
+//				if (role == Qt::DisplayRole)
+				{
+					char reg_name[32] = { 0 };
+					GetBPRegInfo(data+1, reg_name, sizeof(reg_name), NULL, 0);
+					ret += QString::fromLatin1(reg_name) + " ";
+				}
 
 				u32 cmd_offset_limit = analyzed_object->last_cmd_byte+1;
 				if (item->index+1 < analyzed_object->cmd_starts.size() && cmd_offset_limit > analyzed_object->cmd_starts[item->index+1])
@@ -287,6 +347,7 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 				return QVariant(ret);
 			}
 		}
+		else return QVariant();
 	}
 	else if (role == Qt::BackgroundRole)
 	{
@@ -438,6 +499,13 @@ void DffModel::SetEntryEnabled(const QModelIndex& index, bool enable)
 	qDebug() << "Changed item";
 }
 
+void DffModel::Optimize()
+{
+	fifo_data_.frames = FifoDataAnalyzer::OptimizeFifoData(fifo_data_);
+	OnFifoDataChanged(fifo_data_);
+}
+
+
 DffView::DffView(QWidget* parent) : QTreeView(parent)
 {
 	setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -488,7 +556,7 @@ ServerWidget::ServerWidget() : QWidget()
 	connect(try_connect, SIGNAL(clicked()), this, SLOT(OnTryConnect()));
 
 	// TODO: Change the lineedit text to be a default text?
-	dffpath = new QLineEdit;
+	dffpath = new QLineEdit("/home/tony/Downloads/fifologs/prev_indfix/luigis_mansion_shadows.dff");
 	dffpath->setReadOnly(true);
 	QPushButton* openDffFile = new QPushButton(style()->standardIcon(QStyle::SP_DirOpenIcon), "");
 	QPushButton* loadDffFile = new QPushButton(tr("Load"));
@@ -527,6 +595,9 @@ ServerWidget::ServerWidget() : QWidget()
 	connect(dff_view_mapper, SIGNAL(mapped(int)), dff_view, SLOT(OnEnableSelection(int)));
 	connect(dff_view, SIGNAL(EnableEntry(const QModelIndex&,bool)), dff_model, SLOT(SetEntryEnabled(const QModelIndex&,bool)));
 
+	QPushButton* optimize_fifostream_button = new QPushButton(tr("Optimize FIFO Stream"));
+	connect(optimize_fifostream_button, SIGNAL(clicked()), dff_model, SLOT(Optimize()));
+
 	QVBoxLayout* main_layout = new QVBoxLayout;
 	{
 		QHBoxLayout* layout = new QHBoxLayout;
@@ -559,6 +630,9 @@ ServerWidget::ServerWidget() : QWidget()
 		layout->addWidget(enable_geometry_button);
 		layout->addWidget(disable_geometry_button);
 		main_layout->addLayout(layout);
+	}
+	{
+		main_layout->addWidget(optimize_fifostream_button);
 	}
 	setLayout(main_layout);
 }

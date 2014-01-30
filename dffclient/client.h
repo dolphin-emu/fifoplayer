@@ -71,10 +71,15 @@ public:
 	int columnCount(const QModelIndex& parent = QModelIndex()) const;
 	QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const;
 
+	bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole);
+	Qt::ItemFlags flags(const QModelIndex& index) const;
+
 public slots:
 	void OnFifoDataChanged(FifoData& fifo_data);
 
 	void SetEntryEnabled(const QModelIndex& index, bool enable);
+
+	void Optimize();
 
 private:
 	std::vector<AnalyzedFrameInfo> analyzed_frames;

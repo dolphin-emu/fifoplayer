@@ -50,6 +50,13 @@ static uint16_t be16toh(uint16_t val)
 {
 	return val;
 }
+
+static uint32_t htobe32(uint32_t val)
+{
+	return val;
+}
+
+
 #elif BYTE_ORDER==LITTLE_ENDIAN
 // endian.h should have taken care of defining these...
 #endif

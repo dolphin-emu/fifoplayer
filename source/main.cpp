@@ -138,7 +138,7 @@ void ApplyInitialState(const FifoData& fifo_data, u32* tex_addr, CPMemory& targe
 	}
 
 #if ENABLE_CONSOLE!=1
-	#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; LoadCPReg(addr, le32toh(cpmem[addr]), target_cpmem); }
+	#define MLoadCPReg(addr, val) { wgPipe->U8 = 0x08; wgPipe->U8 = addr; wgPipe->U32 = val; target_cpmem.LoadReg(addr, le32toh(cpmem[addr])); }
 
 	MLoadCPReg(0x30, le32toh(cpmem[0x30]));
 	MLoadCPReg(0x40, le32toh(cpmem[0x40]));
@@ -480,7 +480,7 @@ int main()
 					wgPipe->U32 = value;
 #endif
 
-					LoadCPReg(cmd2, value, cpmem);
+					cpmem.LoadReg(cmd2, value);
 				}
 				else if (cmd_data[0] == GX_LOAD_XF_REG)
 				{
