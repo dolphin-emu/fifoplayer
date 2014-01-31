@@ -32,7 +32,6 @@ public:
 	BitField& operator = (u32 val)
 	{
 		storage = (storage & ~GetMask()) | ((val<<position) & GetMask());
-		assert((u32)*this == val);
 		return *this;
 	}
 
@@ -110,8 +109,6 @@ public:
 		u32 host_storage = be32toh(storage);
 		host_storage = (host_storage & ~GetMask()) | ((val<<position) & GetMask());
 		storage = htobe32(host_storage);
-
-		assert((u32)*this == val);
 	}
 
 	operator u32() const

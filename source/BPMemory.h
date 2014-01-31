@@ -639,12 +639,9 @@ union BlendMode
 
 union FogParam0
 {
-	struct 
-	{
-		u32 mantissa : 11;
-		u32 exponent : 8;
-		u32 sign : 1;
-	};
+	BitField<0,11> mantissa;
+	BitField<11,8> exponent;
+	BitField<19,1> sign;
 
 	float GetA()
 	{
@@ -658,14 +655,11 @@ union FogParam0
 
 union FogParam3
 {
-	struct
-	{
-		u32 c_mant : 11;
-		u32 c_exp : 8;
-		u32 c_sign : 1;
-		u32 proj : 1; // 0 - perspective, 1 - orthographic
-		u32 fsel : 3; // 0 - off, 2 - linear, 4 - exp, 5 - exp2, 6 - backward exp, 7 - backward exp2
-	};
+	BitField<0,11> c_mant;
+	BitField<11,8> c_exp;
+	BitField<19,1> c_sign;
+	BitField<20,1> proj; // 0 - perspective, 1 - orthographic
+	BitField<21,3> fsel; // 0 - off, 2 - linear, 4 - exp, 5 - exp2, 6 - backward exp, 7 - backward exp2
 
 	// amount to subtract from eyespacez after range adjustment
 	float GetC()
@@ -680,12 +674,8 @@ union FogParam3
 
 union FogRangeKElement
 {
-	struct
-	{
-		u32 HI : 12;
-		u32 LO : 12;
-		u32 regid : 8;
-	};
+	BitField<0,12> HI;
+	BitField<12,12> LO;
 
 	// TODO: Which scaling coefficient should we use here? This is just a guess!
 	float GetValue(int i) { return (i ? HI : LO) / 256.f; }
@@ -696,13 +686,8 @@ struct FogRangeParams
 {
 	union RangeBase
 	{
-		struct
-		{
-			u32 Center : 10; // viewport center + 342
-			u32 Enabled : 1;
-			u32 unused : 13;
-			u32 regid : 8;
-		};
+		BitField<0,10> Center;
+		BitField<10,1> Enabled;
 		u32 hex;
 	};
 	RangeBase Base;
@@ -712,18 +697,15 @@ struct FogRangeParams
 struct FogParams
 {
 	FogParam0 a;
-	u32 b_magnitude;
-	u32 b_shift; // b's exp + 1?
+	u32 b_magnitude_hex;
+	u32 b_shift_hex; // b's exp + 1?
 	FogParam3 c_proj_fsel;
 
 	union FogColor
 	{
-		struct
-		{
-			u32 b  : 8;
-			u32 g  : 8;
-			u32 r  : 8;
-		};
+		BitField<0,8> b;
+		BitField<8,8> g;
+		BitField<16,8> r;
 		u32 hex;
 	};
 

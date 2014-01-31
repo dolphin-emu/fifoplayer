@@ -602,7 +602,7 @@ ServerWidget::ServerWidget() : QWidget()
 	connect(try_connect, SIGNAL(clicked()), this, SLOT(OnTryConnect()));
 
 	// TODO: Change the lineedit text to be a default text?
-	dffpath = new QLineEdit("/home/tony/Downloads/fifologs/prev_indfix/luigis_mansion_shadows.dff");
+	dffpath = new QLineEdit("");
 	dffpath->setReadOnly(true);
 	QPushButton* openDffFile = new QPushButton(style()->standardIcon(QStyle::SP_DirOpenIcon), "");
 	QPushButton* loadDffFile = new QPushButton(tr("Load"));

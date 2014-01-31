@@ -232,6 +232,66 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 			AddLabel(tr("Copy as intensity: ")).AddCheckBox(copy.intensity_fmt).endl();
 			AddLabel(tr("Automatic color conversion: ")).AddCheckBox(copy.auto_conv).endl();
 		}
+		else if (fifo_data[cmd_start+1] == BPMEM_FOGRANGE) // 0xE8
+		{
+			GET(FogRangeParams::RangeBase, range);
+
+			AddLabel(tr("Fog range adjustment")).endl();
+			AddCheckBox(range.Enabled, tr("Enable")).endl();
+			AddLabel(tr("Center: ")).AddSpinBox(range.Center).endl();
+		}
+		else if (fifo_data[cmd_start+1] >= BPMEM_FOGRANGE + 1 &&
+				fifo_data[cmd_start+1] <= BPMEM_FOGRANGE + 5) // 0xE9 - 0xED
+		{
+			GET(FogRangeKElement, range);
+
+			AddLabel(tr("Fog range adjustment factor group %1").arg(fifo_data[cmd_start+1]-BPMEM_FOGRANGE)).endl();
+			AddLabel(tr("Factor HI: ")).AddSpinBox(range.HI).endl();
+			AddLabel(tr("Factor LO: ")).AddSpinBox(range.LO).endl();
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_FOGPARAM0) // 0xEE
+		{
+			GET(FogParam0, fog);
+
+			AddLabel(tr("Fog parameter A")).endl();
+			AddLabel(tr("Mantissa: ")).AddSpinBox(fog.mantissa).endl();
+			AddLabel(tr("Exponent: ")).AddSpinBox(fog.exponent).endl();
+			AddLabel(tr("Sign: ")).AddComboBox(fog.sign, {tr("Positive"), tr("Negative")}).endl();
+
+			// TODO: _additionally_ add an input field for directly entering the floating point value!
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_FOGBMAGNITUDE) // 0xEF
+		{
+			AddLabel(tr("Fog parameter B")).endl();
+			// TODO!
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_FOGBEXPONENT) // 0xF0
+		{
+			AddLabel(tr("Fog parameter B")).endl();
+			// TODO!
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_FOGPARAM3) // 0xF1
+		{
+			GET(FogParam3, fog);
+
+			AddLabel(tr("Fog configuration and fog parameter C")).endl();
+			AddLabel(tr("Mantissa: ")).AddSpinBox(fog.c_mant).endl();
+			AddLabel(tr("Exponent: ")).AddSpinBox(fog.c_exp).endl();
+			AddLabel(tr("Sign: ")).AddComboBox(fog.c_sign, {tr("Positive"), tr("Negative")}).endl();
+			AddLabel(tr("Projection mode: ")).AddComboBox(fog.c_sign, {tr("Perspective"), tr("Orthographic")}).endl();
+			AddLabel(tr("Fog mode: ")).AddComboBox(fog.c_sign, {tr("Disabled"), tr("Unknown"), tr("Linear"), tr("Unknown"),
+											tr("Exponential"), tr("Exponential squared"), tr("Inverse exponential"),
+											tr("Inverse exponential squared")}).endl();
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_FOGCOLOR) // 0xF2
+		{
+			GET(FogParams::FogColor, color);
+
+			AddLabel(tr("Fog color")).endl();
+			AddLabel(tr("Red:")).AddSpinBox(color.r).endl();
+			AddLabel(tr("Green:")).AddSpinBox(color.g).endl();
+			AddLabel(tr("Blue:")).AddSpinBox(color.b).endl();
+		}
 	}
 }
 
