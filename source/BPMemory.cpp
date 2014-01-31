@@ -134,7 +134,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 	case BPMEM_EFB_TL: // 0x49
 		{
 			SetRegName(BPMEM_EFB_TL);
-			X10Y10 left_top; left_top.hex = cmddata;
+			X10Y10& left_top = *(X10Y10*)&cmddata;
 			snprintf(desc, desc_size, "Left: %d\nTop: %d", left_top.x, left_top.y);
 		}
 		break;
@@ -143,7 +143,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 		{
 			// TODO: Misleading name, should be BPMEM_EFB_WH instead
 			SetRegName(BPMEM_EFB_BR);
-			X10Y10 width_height; width_height.hex = cmddata;
+			X10Y10& width_height = *(X10Y10*)&cmddata;
 			snprintf(desc, desc_size, "Width: %d\nHeight: %d", width_height.x+1, width_height.y+1);
 		}
 		break;

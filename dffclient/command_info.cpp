@@ -155,7 +155,23 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 		edit_offset = cmd_start+1;
 		edit_size = sizeof(u32);
 
-		if (fifo_data[cmd_start+1] == BPMEM_ZMODE) // 0x40
+#define GET(type, name) type& name = *(type*)&cmddata
+
+		if (fifo_data[cmd_start+1] == BPMEM_SCISSORTL) // 0x20
+		{
+			GET(X12Y12, coord); 
+			AddLabel(tr("Scissor rectangle")).endl();
+			AddLabel(tr("Left coordinate:")).AddSpinBox(coord.x).endl();
+			AddLabel(tr("Top coordinate:")).AddSpinBox(coord.y).endl();
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_SCISSORBR) // 0x21
+		{
+			GET(X12Y12, coord); 
+			AddLabel(tr("Scissor rectangle")).endl();
+			AddLabel(tr("Right coordinate:")).AddSpinBox(coord.x).endl();
+			AddLabel(tr("Bottom coordinate:")).AddSpinBox(coord.y).endl();
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_ZMODE) // 0x40
 		{
 			ZMode& zmode = *(ZMode*)&cmddata;
 

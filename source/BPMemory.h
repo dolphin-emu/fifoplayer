@@ -597,20 +597,14 @@ union LPSize
 
 union X12Y12
 {
-	struct 
-	{
-		u32 y : 12;
-		u32 x : 12;
-	};
+	BitField<0,12> y;
+	BitField<12,12> x;
 	u32 hex;
 };
 union X10Y10
 {
-	struct 
-	{
-		u32 x : 10;
-		u32 y : 10;
-	};
+	BitField<0,10> x;
+	BitField<10,10> y;
 	u32 hex;
 };
 
