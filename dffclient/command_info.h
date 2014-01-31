@@ -49,7 +49,7 @@ public:
 	}
 
 public slots:
-	void OnCommandChanged(u32 data);
+	void OnFifoDataChanged();
 	void ActiveItemChanged(const QModelIndex& index);
 
 private:
@@ -59,6 +59,10 @@ private:
 	QHBoxLayout* cur_hlayout;
 
 	QByteArray cur_fifo_data; // Holds current frame's fifoData
+	QModelIndex current_index;
+	QAbstractItemModel* dff_model;
+	u32 edit_offset;
+	u32 edit_size;
 
 /*
 	u8 cmd;

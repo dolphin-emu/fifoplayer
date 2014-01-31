@@ -61,6 +61,7 @@ public:
 		UserRole_CmdStart,
 		UserRole_IsGeometryCommand,
 		UserRole_FifoData,
+		UserRole_FifoDataForCommand,
 	};
 
 public:

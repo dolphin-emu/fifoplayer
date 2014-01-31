@@ -27,7 +27,7 @@ void LinkedSpinBox::OnValueChanged(int value)
 
 LinkedCheckBox::LinkedCheckBox(const QString& str, const BitFieldWrapper& bitfield) : QCheckBox(str), bitfield(bitfield)
 {
-	assert(bitfield.NumBits() == 1);
+//	assert(bitfield.NumBits() == 1);//TODO: Enable!
 
 	setCheckState((bitfield != 0) ? Qt::Checked : Qt::Unchecked);
 
@@ -82,7 +82,7 @@ LayoutStream& LayoutStream::AddSpinBox(BitField<bitfield_position, bitfield_size
 {
 	LinkedSpinBox* widget = new LinkedSpinBox(BitFieldWrapper(bitfield));
 
-	connect(widget, SIGNAL(ValueChanged(u32)), this, SLOT(OnCommandChanged(u32)));
+	connect(widget, SIGNAL(ValueChanged(u32)), this, SLOT(OnFifoDataChanged()));
 
 	cur_hlayout->addWidget(widget);
 	return *this;
@@ -93,7 +93,7 @@ LayoutStream& LayoutStream::AddCheckBox(BitField<BFPos, BFSize>& bitfield, const
 {
 	LinkedCheckBox* widget = new LinkedCheckBox(str, BitFieldWrapper(bitfield));
 
-	connect(widget, SIGNAL(HexChanged(u32)), this, SLOT(OnCommandChanged(u32)));
+	connect(widget, SIGNAL(HexChanged(u32)), this, SLOT(OnFifoDataChanged()));
 
 	cur_hlayout->addWidget(widget);
 	return *this;
@@ -104,7 +104,7 @@ LayoutStream& LayoutStream::AddLineEdit(BitField<BFPos, BFSize>& bitfield)
 {
 	LinkedLineEdit* widget = new LinkedLineEdit(BitFieldWrapper(bitfield));
 
-	connect(widget, SIGNAL(HexChanged(u32)), this, SLOT(OnCommandChanged(u32)));
+	connect(widget, SIGNAL(HexChanged(u32)), this, SLOT(OnFifoDataChanged()));
 
 	cur_hlayout->addWidget(widget);
 	return *this;
@@ -115,7 +115,7 @@ LayoutStream& LayoutStream::AddComboBox(BitField<BFPos, BFSize>& bitfield, const
 {
 	LinkedComboBox* widget = new LinkedComboBox(BitFieldWrapper(bitfield), elements);
 
-	connect(widget, SIGNAL(HexChanged(u32)), this, SLOT(OnCommandChanged(u32)));
+	connect(widget, SIGNAL(HexChanged(u32)), this, SLOT(OnFifoDataChanged()));
 
 	cur_hlayout->addWidget(widget);
 	return *this;
@@ -142,6 +142,9 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 	if (sender->data(index, DffModel::UserRole_Type) != DffModel::IDX_COMMAND)
 		return;
 
+	current_index = index;
+	dff_model = (QAbstractItemModel*)sender; // TODO: not const-correct...
+
 	u32 cmd_start = sender->data(index, DffModel::UserRole_CmdStart).toUInt();
 	cur_fifo_data.clear();
 	cur_fifo_data.append(sender->data(index, DffModel::UserRole_FifoData).toByteArray()); // TODO: Only retrieve this on dataChanged()...
@@ -150,6 +153,8 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 	if (fifo_data[cmd_start] == GX_LOAD_BP_REG)
 	{
 		u32& cmddata = (*(u32*)&fifo_data[cmd_start+1]);
+		edit_offset = cmd_start+1;
+		edit_size = sizeof(u32);
 
 		if (fifo_data[cmd_start+1] == BPMEM_TRIGGER_EFB_COPY)
 		{
@@ -174,9 +179,12 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 	}
 }
 
-void LayoutStream::OnCommandChanged(u32 data)
+void LayoutStream::OnFifoDataChanged()
 {
-	printf("data changed: %08x\n", data);
+//	printf("data changed: %08x\n", data);
+	int cmd_start = dff_model->data(current_index, DffModel::UserRole_CmdStart).toInt();
+	QByteArray data = cur_fifo_data.mid(cmd_start, edit_size+(edit_offset-cmd_start));
+	dff_model->setData(current_index, QVariant(data), DffModel::UserRole_FifoDataForCommand);
 }
 
 void LayoutStream::ClearLayout(QLayout *layout)

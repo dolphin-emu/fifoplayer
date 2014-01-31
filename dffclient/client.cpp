@@ -242,30 +242,47 @@ int DffModel::columnCount(const QModelIndex& parent) const
 
 bool DffModel::setData(const QModelIndex& index, const QVariant& value, int role)
 {
-	if (role != Qt::EditRole)
-		return false;
-
-	// TODO: Check that the input data is valid
-	TreeItem* item = (TreeItem*)index.internalPointer();
-
-	qDebug() << "Patching to data: " << value.toString();
-	const AnalyzedFrameInfo* analyzed_frame = NULL;
-	const AnalyzedObject* analyzed_object = NULL;
-
-	analyzed_frame = &analyzed_frames[item->parent->parent->index];
-	analyzed_object = &analyzed_frame->objects[item->parent->index];
-
-	for (int byte = 0; byte < value.toString().size() / 2; ++byte)
+	if (role == UserRole_FifoDataForCommand)
 	{
-		bool ok;
-		u8 data = value.toString().mid(byte*2, 2).toInt(&ok, 16);
-		qDebug() << "byte: " << data;
-		WritePatchCommand(*client_socket, item->parent->parent->index, byte + analyzed_object->cmd_starts[item->index], 1, &data);
+		if (data(index, UserRole_Type).toInt() != IDX_COMMAND)
+			return false;
+
+		QByteArray databuffer = value.toByteArray();
+		int frame_idx = data(index, UserRole_FrameIndex).toInt();
+		int cmd_start = data(index, UserRole_CmdStart).toInt();
+		memcpy(&fifo_data_.frames[frame_idx].fifoData[cmd_start], databuffer.data(), databuffer.size());;
+
+		emit dataChanged(index, index);
+
+		WritePatchCommand(*client_socket, frame_idx, cmd_start, databuffer.size(), (u8*)databuffer.data());
+
+		return true;
 	}
+	if (role == Qt::EditRole)
+	{
+		// TODO: Check that the input data is valid
+		TreeItem* item = (TreeItem*)index.internalPointer();
 
-	emit dataChanged(index, index);
+		qDebug() << "Patching to data: " << value.toString();
+		const AnalyzedFrameInfo* analyzed_frame = NULL;
+		const AnalyzedObject* analyzed_object = NULL;
 
-	return true;
+		analyzed_frame = &analyzed_frames[item->parent->parent->index];
+		analyzed_object = &analyzed_frame->objects[item->parent->index];
+
+		for (int byte = 0; byte < value.toString().size() / 2; ++byte)
+		{
+			bool ok;
+			u8 data = value.toString().mid(byte*2, 2).toInt(&ok, 16);
+			qDebug() << "byte: " << data;
+			WritePatchCommand(*client_socket, item->parent->parent->index, byte + analyzed_object->cmd_starts[item->index], 1, &data);
+		}
+
+		emit dataChanged(index, index);
+
+		return true;
+	}
+	return false;
 }
 
 Qt::ItemFlags DffModel::flags(const QModelIndex& index) const
@@ -608,6 +625,12 @@ ServerWidget::ServerWidget() : QWidget()
 	connect(dff_view->selectionModel(), SIGNAL(currentChanged(const QModelIndex&,const QModelIndex&)),
 			command_description, SLOT(ActiveItemChanged(const QModelIndex&)));
 
+	QPushButton* expand_all_button = new QPushButton(tr("Expand All"));
+	QPushButton* collapse_all_button = new QPushButton(tr("Collapse All"));
+
+	connect(expand_all_button, SIGNAL(clicked()), dff_view, SLOT(expandAll()));
+	connect(collapse_all_button, SIGNAL(clicked()), dff_view, SLOT(collapseAll()));
+
 	// TODO: Add a "selection" frame around this
 	QPushButton* enable_command_button = new QPushButton(tr("Enable All"));
 	QPushButton* disable_command_button = new QPushButton(tr("Disable All"));
@@ -646,6 +669,12 @@ ServerWidget::ServerWidget() : QWidget()
 	}
 	{
 		main_layout->addWidget(progress_bar);
+	}
+	{
+		QHBoxLayout* layout = new QHBoxLayout;
+		layout->addWidget(expand_all_button);
+		layout->addWidget(collapse_all_button);
+		main_layout->addLayout(layout);
 	}
 	{
 		main_layout->addWidget(dff_view);
