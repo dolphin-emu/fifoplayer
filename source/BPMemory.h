@@ -841,14 +841,11 @@ union TevKSel
 
 union AlphaTest
 {
-	struct
-	{
-		u32 ref0 : 8;
-		u32 ref1 : 8;
-		u32 comp0 : 3;
-		u32 comp1 : 3;
-		u32 logic : 2;
-	};
+	BitField<0,8> ref0;
+	BitField<8,8> ref1;
+	BitField<16,3> comp0;
+	BitField<19,3> comp1;
+	BitField<22,2> logic;
 	u32 hex;
 
 	enum TEST_RESULT

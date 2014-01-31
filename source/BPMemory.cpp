@@ -348,7 +348,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 		case BPMEM_ALPHACOMPARE: // 0xF3
 			{
 				SetRegName(BPMEM_ALPHACOMPARE);
-				AlphaTest test; test.hex = cmddata;
+				AlphaTest& test = *(AlphaTest*)&cmddata;
 				const char* functions[] = { "NEVER", "LESS", "EQUAL", "LEQUAL", "GREATER", "NEQUAL", "GEQUAL", "ALWAYS" };
 				const char* logic[] = { "AND", "OR", "XOR", "XNOR" };
 				snprintf(desc, desc_size, "test 1: %s (ref: %#02x)\n"

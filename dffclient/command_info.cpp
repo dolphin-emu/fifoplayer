@@ -292,6 +292,26 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 			AddLabel(tr("Green:")).AddSpinBox(color.g).endl();
 			AddLabel(tr("Blue:")).AddSpinBox(color.b).endl();
 		}
+		else if (fifo_data[cmd_start+1] == BPMEM_ALPHACOMPARE) // 0xF3
+		{
+			GET(AlphaTest, test);
+
+			QStringList comp_funcs = {
+				tr("Never"), tr("Less"), tr("Equal"), tr("Less or equal"),
+				tr("Greater"), tr("Not equal"), tr("Greater or equal"), tr("Always"),
+			};
+
+			QStringList alpha_ops = {
+				tr("and"), tr("or"), tr("xor"), tr("equal"),
+			};
+
+			AddLabel(tr("Alpha test")).endl();
+			AddLabel(tr("First reference value: ")).AddSpinBox(test.ref0).endl();
+			AddLabel(tr("First comparison function: ")).AddComboBox(test.comp0, comp_funcs).endl();
+			AddLabel(tr("Second reference value: ")).AddSpinBox(test.ref1).endl();
+			AddLabel(tr("Second comparison function: ")).AddComboBox(test.comp1, comp_funcs).endl();
+			AddLabel(tr("Combining function: ")).AddComboBox(test.logic, alpha_ops).endl();
+		}
 	}
 }
 
