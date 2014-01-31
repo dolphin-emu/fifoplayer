@@ -176,7 +176,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 	case BPMEM_TRIGGER_EFB_COPY: // 0x52
 		{
 			SetRegName(BPMEM_TRIGGER_EFB_COPY);
-			UPE_Copy copy; copy.Hex = cmddata;
+			UPE_Copy& copy = *(UPE_Copy*)&cmddata;
 			snprintf(desc, desc_size, "Clamping: %s\n"
 								"Converting from RGB to YUV: %s\n"
 								"Target pixel format: 0x%X\n"

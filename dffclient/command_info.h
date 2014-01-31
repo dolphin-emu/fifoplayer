@@ -13,6 +13,7 @@ typedef uint32_t u32;
 
 class QString;
 class QModelIndex;
+class QByteArray;
 
 class LayoutStream : public QVBoxLayout
 {
@@ -53,8 +54,11 @@ public slots:
 
 private:
 	static void ClearLayout(QLayout *layout);
+	static void FifoDataChanged(u32 start, u32 size);
 
 	QHBoxLayout* cur_hlayout;
+
+	QByteArray cur_fifo_data; // Holds current frame's fifoData
 
 /*
 	u8 cmd;
@@ -66,7 +70,7 @@ class LinkedSpinBox : public QSpinBox
 	Q_OBJECT
 
 public:
-	LinkedSpinBox(BitFieldWrapper bitfield);
+	LinkedSpinBox(const BitFieldWrapper& bitfield);
 
 public slots:
 	void OnValueChanged(int value);
@@ -75,7 +79,7 @@ signals:
 	void ValueChanged(u32 val);
 
 private:
-	BitFieldWrapper &bitfield;
+	BitFieldWrapper bitfield;
 };
 
 class LinkedCheckBox : public QCheckBox
@@ -83,7 +87,7 @@ class LinkedCheckBox : public QCheckBox
 	Q_OBJECT
 
 public:
-	LinkedCheckBox(const QString& str, BitFieldWrapper bitfield);
+	LinkedCheckBox(const QString& str, const BitFieldWrapper& bitfield);
 
 public slots:
 	void OnStateChanged(int state);
@@ -92,7 +96,7 @@ signals:
 	void HexChanged(u32 val);
 
 private:
-	BitFieldWrapper &bitfield;
+	BitFieldWrapper bitfield;
 };
 
 class LinkedLineEdit : public QLineEdit
@@ -100,7 +104,7 @@ class LinkedLineEdit : public QLineEdit
 	Q_OBJECT
 
 public:
-	LinkedLineEdit(BitFieldWrapper bitfield);
+	LinkedLineEdit(const BitFieldWrapper& bitfield);
 
 public slots:
 	void OnTextChanged(const QString& str);
@@ -109,7 +113,7 @@ signals:
 	void HexChanged(u32 val);
 
 private:
-	BitFieldWrapper &bitfield;
+	BitFieldWrapper bitfield;
 };
 
 class LinkedComboBox : public QComboBox
@@ -117,7 +121,7 @@ class LinkedComboBox : public QComboBox
 	Q_OBJECT
 
 public:
-	LinkedComboBox(BitFieldWrapper bitfield, const std::vector<QString>& elements);
+	LinkedComboBox(const BitFieldWrapper& bitfield, const std::vector<QString>& elements);
 
 public slots:
 	void OnCurrentIndexChanged(int index);
@@ -126,5 +130,5 @@ signals:
 	void HexChanged(u32 val);
 
 private:
-	BitFieldWrapper &bitfield;
+	BitFieldWrapper bitfield;
 };
