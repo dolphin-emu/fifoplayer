@@ -94,7 +94,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 	case BPMEM_BLENDMODE: // 0x41
 		{
 			SetRegName(BPMEM_BLENDMODE);
-			BlendMode mode; mode.hex = cmddata;
+			BlendMode& mode = *(BlendMode*)&cmddata;
 			const char* dstfactors[] = { "0", "1", "src_color", "1-src_color", "src_alpha", "1-src_alpha", "dst_alpha", "1-dst_alpha" };
 			const char* srcfactors[] = { "0", "1", "dst_color", "1-dst_color", "src_alpha", "1-src_alpha", "dst_alpha", "1-dst_alpha" };
 			const char* logicmodes[] = { "0", "s & d", "s & ~d", "s", "~s & d", "d", "s ^ d", "s | d", "~(s | d)", "~(s ^ d)", "~d", "s | ~d", "~s", "~s | d", "~(s & d)", "1" };

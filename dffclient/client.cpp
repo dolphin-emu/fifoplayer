@@ -91,6 +91,9 @@ void WriteSetCommandEnabled(int socket, u32 frame, u32 object, u32 offset, int e
 
 void WritePatchCommand(int socket, u32 frame, u32 offset, u32 size, u8* data)
 {
+	if (*client_socket == -1)
+		return;
+
 	u8 cmd = CMD_PATCH_COMMAND;
 	u32 frame_n = htonl(frame);
 	u32 offset_n = htonl(offset);
@@ -107,7 +110,7 @@ void WritePatchCommand(int socket, u32 frame, u32 offset, u32 size, u8* data)
 	netqueue->Flush();
 }
 
-DffClient::DffClient(QObject* parent) : QObject(parent)
+DffClient::DffClient(QObject* parent) : QObject(parent), socket(-1)
 {
 	client_socket = &socket;
 	connect(this, SIGNAL(connected()), this, SLOT(OnConnected()));

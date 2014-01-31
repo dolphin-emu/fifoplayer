@@ -14,6 +14,7 @@ typedef uint32_t u32;
 class QString;
 class QModelIndex;
 class QByteArray;
+class QStringList;
 
 class LayoutStream : public QVBoxLayout
 {
@@ -37,7 +38,7 @@ public:
 	LayoutStream& AddLineEdit(BitField<BFPos, BFSize>& bitfield);
 
 	template<u32 BFPos, u32 BFSize>
-	LayoutStream& AddComboBox(BitField<BFPos, BFSize>& bitfield, const std::vector<QString>& elements);
+	LayoutStream& AddComboBox(BitField<BFPos, BFSize>& bitfield, const QStringList& elements);
 
 	LayoutStream& endl();
 
@@ -125,7 +126,7 @@ class LinkedComboBox : public QComboBox
 	Q_OBJECT
 
 public:
-	LinkedComboBox(const BitFieldWrapper& bitfield, const std::vector<QString>& elements);
+	LinkedComboBox(const BitFieldWrapper& bitfield, const QStringList& elements);
 
 public slots:
 	void OnCurrentIndexChanged(int index);
