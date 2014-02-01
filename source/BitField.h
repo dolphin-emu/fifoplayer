@@ -2,6 +2,7 @@
 #define BITFIELD_H
 
 #include "CommonTypes.h"
+#include "endian_conv.h"
 #include <assert.h>
 
 // NOTE: Only works for sizeof(T)<=4 bytes
@@ -68,8 +69,6 @@ union SomeClass
 // Slow, non-templated bit-fields - required for Qt, since Q_OBJECT classes cannot be templated
 // TODO: Too specialized now, needs to be moved to Qt!
 // non-templated bitfields acting on big endian storages but using host values for assignment and (u32) casts
-u32 be32toh(u32);
-u32 htobe32(u32);
 class BitFieldWrapper
 {
 private:

@@ -553,7 +553,8 @@ int main()
 			wgPipe->U8 = GX_LOAD_BP_REG;
 			wgPipe->U32 = (BPMEM_EFB_ADDR << 24) | ((MEM_VIRTUAL_TO_PHYSICAL(frameBuffer[fb]) >> 5) & 0xFFFFFF);
 
-			UPE_Copy copy;
+			u32 temp;
+			UPE_Copy& copy = *(UPE_Copy*)&temp;
 			copy.Hex = 0;
 			copy.clear = 1;
 			copy.copy_to_xfb = 1;

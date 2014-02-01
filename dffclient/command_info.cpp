@@ -159,7 +159,20 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 
 #define GET(type, name) type& name = *(type*)&cmddata
 
-		if (fifo_data[cmd_start+1] == BPMEM_SCISSORTL) // 0x20
+		if (fifo_data[cmd_start+1] == BPMEM_GENMODE) // 0x00
+		{
+			GET(GenMode, mode);
+
+			AddLabel(tr("Gen mode")).endl();
+			AddLabel(tr("numtexgens: ")).AddSpinBox(mode.numtexgens).endl();
+			AddLabel(tr("numcolchans: ")).AddSpinBox(mode.numcolchans).endl();
+			AddCheckBox(mode.ms_en, tr("Enable multisampling")).endl();
+			AddLabel(tr("numtexstages: ")).AddSpinBox(mode.numtexstages).endl();
+			AddLabel(tr("Culling: ")).AddComboBox(mode.cullmode, {tr("Disabled"), tr("Cull front facing"), tr("Cull back facing"), tr("Cull everything") }).endl();
+			AddLabel(tr("numindstages: ")).AddSpinBox(mode.numindstages).endl();
+			AddCheckBox(mode.zfreeze, tr("Enable zfreeze")).endl();
+		}
+		else if (fifo_data[cmd_start+1] == BPMEM_SCISSORTL) // 0x20
 		{
 			GET(X12Y12, coord); 
 			AddLabel(tr("Scissor rectangle")).endl();
