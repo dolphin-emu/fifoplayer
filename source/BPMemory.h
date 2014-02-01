@@ -765,14 +765,10 @@ union FieldMask
 
 union PE_CONTROL
 {
-	struct
-	{
-		u32 pixel_format : 3;	// PIXELFMT_X
-		u32 zformat : 3;		// Z Compression for 16bit Z format
-		u32 early_ztest : 1;	// 1: before tex stage
-		u32 unused : 17;
-		u32 rid : 8;
-	};
+	BitField<0,3> pixel_format; // PIXELFMT_X
+	BitField<3,3> zformat; // Z compression for 16 bit Z format
+	BitField<6,1> early_ztest; // 1: before tex stage
+
 	u32 hex;
 };
 
@@ -781,7 +777,7 @@ union PE_CONTROL
 
 union TCInfo
 {
-	struct 
+	struct
 	{
 		u32 scale_minus_1 : 16;
 		u32 range_bias : 1;

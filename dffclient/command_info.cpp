@@ -227,6 +227,15 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 			AddCheckBox(mode.alphaupdate, tr("Enable alpha writing")).endl();
 			AddCheckBox(mode.dither, tr("Enable dithering")).endl();
 		}
+		else if (fifo_data[cmd_start+1] == BPMEM_ZCOMPARE) // 0x43
+		{
+			GET(PE_CONTROL, ctrl);
+
+			AddLabel(tr("Pixel Engine control")).endl();
+			AddLabel(tr("EFB pixel format: ")).AddComboBox(ctrl.pixel_format, {"RGB8 Z24", "RGBA6 Z24", "RGB565 Z16", "Z24", "Y8", "U8", "V8", "YUV420"}).endl();
+			AddLabel(tr("EFB depth format: ")).AddComboBox(ctrl.zformat, {tr("Linear"), tr("Near"), tr("Mid"), tr("Far"), tr("Inverse near"), tr("Inverse mid"), tr("Inverse far")}).endl();
+			AddCheckBox(ctrl.early_ztest, tr("Early depth test")).endl();
+		}
 		else if (fifo_data[cmd_start+1] == BPMEM_TRIGGER_EFB_COPY) // 0x52
 		{
 			UPE_Copy& copy = *(UPE_Copy*)&cmddata;
