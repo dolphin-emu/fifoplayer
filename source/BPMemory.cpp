@@ -269,7 +269,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 	case BPMEM_TEV_COLOR_ENV+30:
 		{
 			SetRegName(BPMEM_TEV_COLOR_ENV); // TODO
-			TevStageCombiner::ColorCombiner cc; cc.hex = cmddata;
+			TevStageCombiner::ColorCombiner& cc = *(TevStageCombiner::ColorCombiner*)&cmddata;
 			const char* tevin[] =
 			{
 				"prev.rgb", "prev.aaa",
@@ -317,7 +317,7 @@ void GetBPRegInfo(const u8* data, char* name, size_t name_size, char* desc, size
 	case BPMEM_TEV_ALPHA_ENV+30:
 		{
 			SetRegName(BPMEM_TEV_ALPHA_ENV); // TODO
-			TevStageCombiner::AlphaCombiner ac; ac.hex = cmddata;
+			TevStageCombiner::AlphaCombiner& ac = *(TevStageCombiner::AlphaCombiner*)&cmddata;
 			const char* tevin[] =
 			{
 				"prev", "c0", "c1", "c2",

@@ -62,6 +62,8 @@ void LinkedLineEdit::OnTextChanged(const QString& str)
 
 LinkedComboBox::LinkedComboBox(const BitFieldWrapper& bitfield, const QStringList& elements) : QComboBox(), bitfield(bitfield)
 {
+	// assert(elements.size() == bitfield.MaxVal()); TODO!
+
 	addItems(elements);
 
 	setCurrentIndex(bitfield);
@@ -231,6 +233,75 @@ void LayoutStream::ActiveItemChanged(const QModelIndex& index)
 			AddLabel(tr("Copy to XFB: ")).AddCheckBox(copy.frame_to_field).endl();
 			AddLabel(tr("Copy as intensity: ")).AddCheckBox(copy.intensity_fmt).endl();
 			AddLabel(tr("Automatic color conversion: ")).AddCheckBox(copy.auto_conv).endl();
+		}
+		else if (fifo_data[cmd_start+1] >= BPMEM_TEV_COLOR_ENV &&
+				fifo_data[cmd_start+1] <= BPMEM_TEV_ALPHA_ENV + 2*15) // 0xC0 - 0xDF
+		{
+			int stage = (fifo_data[cmd_start+1] - BPMEM_TEV_COLOR_ENV) / 2;
+
+			QStringList bias_values = { tr("0"), tr("+0.5"), tr("-0.5"), tr("Use compare function") };
+			QStringList shift_values = { "1.0", "2.0", "4.0", "0.5" };
+			QStringList outputs = { "PREV", "REG0", "REG1", "REG2"};
+			QStringList operations = { tr("Add"), tr("Subtract")};
+			QStringList compare_functions = {"Greater", "Equal"};
+
+			if ((fifo_data[cmd_start+1] & 1) == 0)
+			{
+				GET(TevStageCombiner::ColorCombiner, comb);
+
+				QStringList inputs = {
+					tr("PREV color"), tr("PREV alpha"), tr("REG0 color"), tr("REG0 alpha"),
+					tr("REG1 color"), tr("REG1 alpha"), tr("REG2 color"), tr("REG2 alpha"),
+					tr("Texture color"), tr("Texture alpha"), tr("Rasterized color"), tr("Rasterized alpha"),
+					tr("1"), tr("0.5"), tr("Konst color"), tr("0")
+				};
+
+				AddLabel(tr("Color combiner for Tev stage %1").arg(stage)).endl();
+				AddLabel(tr("Input A: ")).AddComboBox(comb.a, inputs).endl();
+				AddLabel(tr("Input B: ")).AddComboBox(comb.b, inputs).endl();
+				AddLabel(tr("Input C: ")).AddComboBox(comb.c, inputs).endl();
+				AddLabel(tr("Input D: ")).AddComboBox(comb.d, inputs).endl();
+
+				AddLabel(tr("Bias: ")).AddComboBox(comb.bias, bias_values).endl();
+				AddLabel(tr("Operation: ")).AddComboBox(comb.op, operations).endl();
+				AddCheckBox(comb.clamp, tr("Clamp")).endl();
+				AddLabel(tr("Scale: ")).AddComboBox(comb.shift, shift_values).endl();
+
+				AddLabel(tr("Destination: ")).AddComboBox(comb.dest, outputs).endl();
+
+				// TODO: Changing these does not update the upper ones!!
+				AddLabel(tr("Compare operation: ")).AddComboBox(comb.op, compare_functions).endl();
+				AddLabel(tr("Compared components: ")).AddComboBox(comb.shift, {"R", "GR", "BGR", "RGB per-channel"}).endl();
+			}
+			else
+			{
+				GET(TevStageCombiner::AlphaCombiner, comb);
+
+				QStringList inputs = {
+					tr("PREV"), tr("REG0"), tr("REG1"), tr("REG2"),
+					tr("Texture"), tr("Rasterizer"), tr("Konst"), tr("0")
+				};
+
+				AddLabel(tr("Alpha combiner for Tev stage %1").arg(stage)).endl();
+				AddLabel(tr("Input A: ")).AddComboBox(comb.a, inputs).endl();
+				AddLabel(tr("Input B: ")).AddComboBox(comb.b, inputs).endl();
+				AddLabel(tr("Input C: ")).AddComboBox(comb.c, inputs).endl();
+				AddLabel(tr("Input D: ")).AddComboBox(comb.d, inputs).endl();
+
+				AddLabel(tr("Bias: ")).AddComboBox(comb.bias, bias_values).endl();
+				AddLabel(tr("Operation: ")).AddComboBox(comb.op, operations).endl();
+				AddCheckBox(comb.clamp, tr("Clamp")).endl();
+				AddLabel(tr("Scale: ")).AddComboBox(comb.shift, shift_values).endl();
+
+				AddLabel(tr("Destination: ")).AddComboBox(comb.dest, outputs).endl();
+
+				// TODO: Changing these does not update the upper ones!!
+				AddLabel(tr("Compare operation: ")).AddComboBox(comb.op, compare_functions).endl();
+				AddLabel(tr("Compared components: ")).AddComboBox(comb.shift, {"R", "GR", "BGR", "A"}).endl();
+
+				AddLabel(tr("Rasterized input swap: ")).AddSpinBox(comb.rswap).endl();
+				AddLabel(tr("Texture input swap: ")).AddSpinBox(comb.tswap).endl();
+			}
 		}
 		else if (fifo_data[cmd_start+1] == BPMEM_FOGRANGE) // 0xE8
 		{

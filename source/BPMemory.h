@@ -266,41 +266,37 @@ struct TevStageCombiner
 {
 	union ColorCombiner
 	{
-		struct  //abc=8bit,d=10bit
-		{
-			u32 d : 4; // TEVSELCC_X
-			u32 c : 4; // TEVSELCC_X
-			u32 b : 4; // TEVSELCC_X
-			u32 a : 4; // TEVSELCC_X
+		BitField<0,4> d;
+		BitField<4,4> c;
+		BitField<8,4> b;
+		BitField<12,4> a;
 
-			u32 bias : 2;
-			u32 op : 1;
-			u32 clamp : 1;
+		BitField<16,2> bias;
+		BitField<18,1> op;
+		BitField<19,1> clamp;
 
-			u32 shift : 2;
-			u32 dest : 2;  //1,2,3
+		BitField<20,2> shift;
+		BitField<22,2> dest;
 
-		};
 		u32 hex;
 	};
 	union AlphaCombiner
 	{
-		struct 
-		{
-			u32 rswap : 2;
-			u32 tswap : 2;
-			u32 d : 3; // TEVSELCA_
-			u32 c : 3; // TEVSELCA_
-			u32 b : 3; // TEVSELCA_
-			u32 a : 3; // TEVSELCA_
+		BitField<0,2> rswap;
+		BitField<2,2> tswap;
 
-			u32 bias : 2; //GXTevBias
-			u32 op : 1;
-			u32 clamp : 1;
+		BitField<4,3> d;
+		BitField<7,3> c;
+		BitField<10,3> b;
+		BitField<13,3> a;
 
-			u32 shift : 2;
-			u32 dest : 2;  //1,2,3
-		};
+		BitField<16,2> bias;
+		BitField<18,1> op;
+		BitField<19,1> clamp;
+
+		BitField<20,2> shift;
+		BitField<22,2> dest;
+
 		u32 hex;
 	};
 
