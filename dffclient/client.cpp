@@ -338,7 +338,7 @@ QVariant DffModel::data(const QModelIndex& index, int role) const
 			u32 frame_idx = item->parent->parent->index;
 			QString ret;
 			if (role == Qt::DisplayRole)
-				ret = tr("Command %1: ").arg(index.row());
+				ret = tr("Command %1@%2: ").arg(index.row()).arg(analyzed_object->cmd_starts[item->index], 8, 16, QLatin1Char('0'));
 
 			const u8* data = &fifo_data_.frames[frame_idx].fifoData[analyzed_object->cmd_starts[item->index]];
 
