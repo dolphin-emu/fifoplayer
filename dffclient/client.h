@@ -1,6 +1,7 @@
 #include <QWidget>
 #include <QAbstractItemModel>
 #include <QTreeView>
+#include <QTcpSocket>
 
 #include <vector>
 
@@ -89,25 +90,6 @@ private:
 	FifoData fifo_data_; // TODO: Shouldn't be required :/
 };
 
-class DffClient : public QObject
-{
-	Q_OBJECT
-
-public:
-	DffClient(QObject* parent = NULL);
-
-	int socket;
-
-public slots:
-	void Connect(const QString & hostName);
-	void OnConnected();
-
-signals:
-	void connected();
-
-private:
-};
-
 class ServerWidget : public QWidget
 {
 	Q_OBJECT
@@ -117,6 +99,8 @@ public:
 
 public slots:
 	void OnTryConnect();
+	void OnConnected();
+	void OnSocketError();
 
 	void OnSelectDff();
 	void OnLoadDff();
@@ -132,7 +116,7 @@ signals:
 	void SetProgressBarValue(int value);
 
 private:
-	DffClient* client;
+	QTcpSocket* client;
 	QLineEdit* hostname;
 	QLineEdit* dffpath;
 };
