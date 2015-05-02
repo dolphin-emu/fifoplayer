@@ -1,7 +1,6 @@
 #include <QApplication>
 #include <QMainWindow>
 #include <QTcpSocket>
-#include <QTcpServer>
 #include <QPushButton>
 #include <QBoxLayout>
 #include <QTimer>
@@ -25,56 +24,19 @@
 #include "../source/FifoAnalyzer.h"
 #include "command_info.h"
 
-int* client_socket = NULL; // TODO: Remove this
+QTcpSocket *client_socket = NULL; // TODO: Remove this
 
 LayoutStream* command_description = NULL; // TODO
 
-class NetworkQueue
-{
-public:
-	NetworkQueue(int socket) : socket(socket), cur_pos_(0) {}
-
-	void PushCommand(u8* data, u32 size)
-	{
-		// Flush existing data if new command doesn't fit
-		if (cur_pos_ + size > size_)
-			Flush();
-
-		// TODO: Assert that size < size_!
-		PushData(data, size);
-	}
-	void Flush()
-	{
-		send(socket, data_, cur_pos_, 0);
-		cur_pos_ = 0;
-	}
-
-private:
-	// Blindly push data without checking for overflows etc
-	void PushData(u8* data, u32 size)
-	{
-		memcpy(data_ + cur_pos_, data, size);
-		cur_pos_ += size;
-	}
-
-	static const int size_ = 65536;
-
-	int socket;
-	u8 data_[size_];
-	int cur_pos_;
-};
-
-NetworkQueue* netqueue = NULL;
-
-void WriteHandshake(int socket)
+void WriteHandshake(QTcpSocket *socket)
 {
 	u8 data[5];
 	data[0] = CMD_HANDSHAKE;
 	*(uint32_t*)&data[1] = htonl(handshake);
-	netqueue->PushCommand(data, sizeof(data));
+	socket->write((char*)data, sizeof(data));
 }
 
-void WriteSetCommandEnabled(int socket, u32 frame, u32 object, u32 offset, int enable)
+void WriteSetCommandEnabled(QTcpSocket *socket, u32 frame, u32 object, u32 offset, int enable)
 {
 	u8 cmd = (enable) ? CMD_ENABLE_COMMAND : CMD_DISABLE_COMMAND;
 	u32 frame_n = htonl(frame);
@@ -86,12 +48,12 @@ void WriteSetCommandEnabled(int socket, u32 frame, u32 object, u32 offset, int e
 	*(u32*)&data[1] = frame_n;
 	*(u32*)&data[5] = object_n;
 	*(u32*)&data[9] = offset_n;
-	netqueue->PushCommand(data, sizeof(data));
+	socket->write((char*)data, sizeof(data));
 }
 
-void WritePatchCommand(int socket, u32 frame, u32 offset, u32 size, u8* data)
+void WritePatchCommand(QTcpSocket *socket, u32 frame, u32 offset, u32 size, u8* data)
 {
-	if (*client_socket == -1)
+	if (socket->state() != QTcpSocket::ConnectedState)
 		return;
 
 	u8 cmd = CMD_PATCH_COMMAND;
@@ -105,121 +67,10 @@ void WritePatchCommand(int socket, u32 frame, u32 offset, u32 size, u8* data)
 	*(u32*)&cmd_data[1] = frame_n;
 	*(u32*)&cmd_data[5] = offset_n;
 	*(u32*)&cmd_data[9] = size_n;
-	netqueue->PushCommand(cmd_data, sizeof(cmd_data));
-	netqueue->PushCommand(data, size);
-	netqueue->Flush();
+	socket->write((char*)cmd_data, sizeof(cmd_data));
+	socket->write((char*)data, size);
+	socket->flush();
 }
-
-DffClient::DffClient(QObject* parent) : QObject(parent), socket(-1)
-{
-	client_socket = &socket;
-	connect(this, SIGNAL(connected()), this, SLOT(OnConnected()));
-}
-
-void DffClient::Connect(const QString& hostName)
-{
-	int count;
-	struct sockaddr_in serv_name;
-	int status;
-
-	socket = ::socket(AF_INET, SOCK_STREAM, 0);
-	if (socket == -1)
-	{
-		qDebug() << "Error at creating socket!";
-	}
-
-	memset(&serv_name, 0, sizeof(serv_name));
-	serv_name.sin_family = AF_INET;
-	serv_name.sin_port = htons(DFF_CONN_PORT);
-	inet_aton(hostName.toLatin1().constData(), &serv_name.sin_addr);
-
-	status = ::connect(socket, (struct sockaddr*)&serv_name, sizeof(serv_name));
-	if (status == -1)
-	{
-		perror("connect");
-	}
-	else
-	{
-		emit connected();
-	}
-}
-
-void DffClient::OnConnected()
-{
-	qDebug() << "Client connected successfully";
-
-	if (netqueue)
-	{
-		netqueue->Flush();
-		delete netqueue;
-	}
-	netqueue = new NetworkQueue(socket);
-	WriteHandshake(socket);
-	netqueue->Flush();
-}
-
-// Kept for reference
-#if 0
-void DummyServer::CheckIncomingData()
-{
-while (true) {
-begin:
-
-	fd_set readset;
-	FD_ZERO(&readset);
-	FD_SET(server_socket, &readset);
-	if (client_socket != -1)
-		FD_SET(client_socket, &readset);
-	int maxfd = std::max(client_socket, server_socket);
-
-	struct timeval timeout;
-	timeout.tv_sec = 0;
-	timeout.tv_usec = 0;
-
-	char data[12];
-	int ret = select(maxfd+1, &readset, NULL, NULL, &timeout); // TODO: Is this compatible with winsocks?
-	if (ret <= 0)
-	{
-//		CheckIncomingData(socket);
-//		return;
-		goto begin;
-	}
-
-	if (FD_ISSET(server_socket, &readset))
-	{
-		int new_socket = accept(server_socket, NULL, NULL);
-		if (new_socket < 0)
-		{
-			qDebug() << "accept failed";
-		}
-		else client_socket = new_socket;
-	}
-	if (FD_ISSET(client_socket, &readset))
-	{
-		char cmd;
-		ssize_t numread = recv(client_socket, &cmd, 1, MSG_PEEK);
-		switch (cmd)
-		{
-			case CMD_HANDSHAKE:
-/*				if (RET_SUCCESS == ReadHandshake(client_socket))
-					qDebug() << tr("Successfully exchanged handshake token!");
-				else
-					qDebug() << tr("Failed to exchange handshake token!");
-*/
-				// TODO: should probably write a handshake in return, but ... I'm lazy
-				break;
-
-			case CMD_STREAM_DFF:
-//				ReadStreamedDff(client_socket);
-				break;
-
-			default:;
-//				qDebug() << tr("Received unknown command: ") << cmd;
-		}
-	}
-}
-}
-#endif
 
 class TreeItem : public QObject
 {
@@ -257,7 +108,7 @@ bool DffModel::setData(const QModelIndex& index, const QVariant& value, int role
 
 		emit dataChanged(index, index);
 
-		WritePatchCommand(*client_socket, frame_idx, cmd_start, databuffer.size(), (u8*)databuffer.data());
+		WritePatchCommand(client_socket, frame_idx, cmd_start, databuffer.size(), (u8*)databuffer.data());
 
 		return true;
 	}
@@ -278,7 +129,7 @@ bool DffModel::setData(const QModelIndex& index, const QVariant& value, int role
 			bool ok;
 			u8 data = value.toString().mid(byte*2, 2).toInt(&ok, 16);
 			qDebug() << "byte: " << data;
-			WritePatchCommand(*client_socket, item->parent->parent->index, byte + analyzed_object->cmd_starts[item->index], 1, &data);
+			WritePatchCommand(client_socket, item->parent->parent->index, byte + analyzed_object->cmd_starts[item->index], 1, &data);
 		}
 
 		emit dataChanged(index, index);
@@ -546,8 +397,8 @@ void DffView::OnEnableSelection(int flags)
 	for (QModelIndexList::iterator it = indexes.begin(); it != indexes.end(); ++it)
 		EnableIndexRecursively(*it, (flags & CSF_ENABLE) != 0, (flags & CSF_GEOMETRY_AND_STATE) == 0);
 
-	if (netqueue)
-		netqueue->Flush();
+	if (client_socket->state() == QTcpSocket::ConnectedState)
+		client_socket->flush();
 }
 
 void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable, bool geometry_only)
@@ -566,7 +417,7 @@ void DffView::EnableIndexRecursively(const QModelIndex& index, bool enable, bool
 	{
 		u32 object_idx = index.data(DffModel::UserRole_ObjectIndex).toInt();
 		u32 frame_idx = index.data(DffModel::UserRole_FrameIndex).toInt();
-		WriteSetCommandEnabled(*client_socket, frame_idx, object_idx, index.data(DffModel::UserRole_CmdStart).toInt(), static_cast<int>(enable));
+		WriteSetCommandEnabled(client_socket, frame_idx, object_idx, index.data(DffModel::UserRole_CmdStart).toInt(), static_cast<int>(enable));
 
 		// TODO: Should affect parent items when appropriate
 		emit EnableEntry(index, enable);
@@ -594,7 +445,10 @@ ServerWidget::ServerWidget() : QWidget()
 	PRINT_FIELD(clamp0);
 	exit(0);*/
 
-	client = new DffClient(this);
+	client = new QTcpSocket(this);
+	client_socket = client;
+	connect(client, SIGNAL(connected()), this, SLOT(OnConnected()));
+	connect(client, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(OnSocketError()));
 
 	hostname = new QLineEdit("127.0.0.1");
 	QPushButton* try_connect = new QPushButton(tr("Connect"));
@@ -704,15 +558,15 @@ ServerWidget::ServerWidget() : QWidget()
 }
 
 // progress_callback takes a) the current progress as an arbitrary integer b) the progress value that corresponds to "completed task"
-void WriteStreamDff(int socket, QString filename, std::function<void(int,int)> progress_callback)
+void WriteStreamDff(QTcpSocket *socket, QString filename, std::function<void(int,int)> progress_callback)
 {
 	u8 cmd = CMD_STREAM_DFF;
-	netqueue->PushCommand(&cmd, sizeof(cmd));
+	socket->write((char*)&cmd, sizeof(cmd));
 
 	QFile file(filename);
 	int32_t size = file.size();
 	int32_t n_size = htonl(size);
-	netqueue->PushCommand((u8*)&n_size, sizeof(n_size));
+	socket->write((char*)&n_size, sizeof(n_size));
 	qDebug() << "About to send " << size << " bytes of dff data!" << n_size;
 
 	file.open(QIODevice::ReadOnly);
@@ -723,11 +577,12 @@ void WriteStreamDff(int socket, QString filename, std::function<void(int,int)> p
 		progress_callback(size-remaining, size);
 		u8 data[dff_stream_chunk_size];
 		stream.readRawData((char*)data, std::min(remaining,dff_stream_chunk_size));
-		netqueue->PushCommand(data, std::min(remaining,dff_stream_chunk_size));
+		socket->write((char*)data, std::min(remaining,dff_stream_chunk_size));
+		socket->waitForBytesWritten();
 
 		qDebug() << remaining << " bytes left to be sent!";
 	}
-	netqueue->Flush();
+	socket->flush();
 
 	file.close();
 }
@@ -752,13 +607,26 @@ void ServerWidget::OnLoadDff()
 	using namespace std::placeholders;
 
 	emit ShowProgressBar();
-	WriteStreamDff(client->socket, dffpath->text(), std::bind(&ServerWidget::OnSetProgress, this, _1, _2));
+	WriteStreamDff(client, dffpath->text(), std::bind(&ServerWidget::OnSetProgress, this, _1, _2));
 	emit HideProgressBar();
 }
 
 void ServerWidget::OnTryConnect()
 {
-	client->Connect(hostname->text());
+	client->connectToHost(hostname->text(), DFF_CONN_PORT);
+}
+
+void ServerWidget::OnConnected()
+{
+	qDebug() << "Client connected successfully";
+
+	WriteHandshake(client);
+	client->flush();
+}
+
+void ServerWidget::OnSocketError()
+{
+	qDebug() << client->errorString();
 }
 
 void ServerWidget::OnSetProgress(int current, int max)
